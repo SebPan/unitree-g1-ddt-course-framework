@@ -1053,6 +1053,69 @@ bool validate_joint_request(
 
 
     // ----------------------------------------------------
+    // Calcular desplazamiento solicitado
+    // ----------------------------------------------------
+
+    const float delta =
+        std::fabs(
+            requested_position -
+            current_position_[index]
+            );
+
+
+    const bool trajectory_command =
+        msg->duration > 0.0;
+
+
+    // ----------------------------------------------------
+    // Seguridad de trayectoria
+    // Aplica tanto en SIM como en REAL
+    // ----------------------------------------------------
+
+    if (trajectory_command)
+    {
+        const double duration =
+            msg->duration;
+
+        const double peak_velocity =
+            1.5 * delta / duration;
+
+        const double peak_acceleration =
+            6.0 * delta / (duration * duration);
+
+
+        if (peak_velocity > max_trajectory_velocity_real_)
+        {
+            RCLCPP_ERROR(
+                this->get_logger(),
+                "%s rechazado: velocidad de trayectoria "
+                "%.3f rad/s > %.3f rad/s",
+                msg->name[n].c_str(),
+                peak_velocity,
+                max_trajectory_velocity_real_
+                );
+
+            return false;
+        }
+
+
+        if (peak_acceleration > max_trajectory_acceleration_real_)
+        {
+            RCLCPP_ERROR(
+                this->get_logger(),
+                "%s rechazado: aceleracion de trayectoria "
+                "%.3f rad/s2 > %.3f rad/s2",
+                msg->name[n].c_str(),
+                peak_acceleration,
+                max_trajectory_acceleration_real_
+                );
+
+            return false;
+        }
+    }
+
+
+    // ----------------------------------------------------
     // Protecciones exclusivas del robot REAL
     // ----------------------------------------------------
 
@@ -1064,89 +1127,28 @@ bool validate_joint_request(
                 this->get_logger(),
                 "%s rechazado: grupo deshabilitado en REAL",
                 msg->name[n].c_str()
-            );
+                );
 
             return false;
         }
 
 
-        const float delta =
-            std::fabs(
-                requested_position -
-                current_position_[index]
+        // set_joint(): impedir saltos directos grandes.
+        // move_joint(): usa las protecciones de trayectoria anteriores.
+        if (!trajectory_command && delta > max_step_real_)
+        {
+            RCLCPP_ERROR(
+                this->get_logger(),
+                "%s rechazado: salto %.3f rad > %.3f rad",
+                msg->name[n].c_str(),
+                delta,
+                max_step_real_
                 );
 
-
-        const bool trajectory_command =
-            msg->duration > 0.0;
-
-
-        // ----------------------------------------------------
-        // Comando directo: limitar salto
-        // ----------------------------------------------------
-
-        if (!trajectory_command)
-        {
-            if (delta > max_step_real_)
-            {
-                RCLCPP_ERROR(
-                    this->get_logger(),
-                    "%s rechazado: salto %.3f rad > %.3f rad",
-                    msg->name[n].c_str(),
-                    delta,
-                    max_step_real_
-                    );
-
-                return false;
-            }
+            return false;
         }
 
 
-        // ----------------------------------------------------
-        // Trayectoria: limitar velocidad y aceleracion
-        // ----------------------------------------------------
-
-        else
-        {
-            const double duration =
-                msg->duration;
-
-            const double peak_velocity =
-                1.5 * delta / duration;
-
-            const double peak_acceleration =
-                6.0 * delta / (duration * duration);
-
-
-            if (peak_velocity > max_trajectory_velocity_real_)
-            {
-                RCLCPP_ERROR(
-                    this->get_logger(),
-                    "%s rechazado: velocidad de trayectoria "
-                    "%.3f rad/s > %.3f rad/s",
-                    msg->name[n].c_str(),
-                    peak_velocity,
-                    max_trajectory_velocity_real_
-                    );
-
-                return false;
-            }
-
-
-            if (peak_acceleration > max_trajectory_acceleration_real_)
-            {
-                RCLCPP_ERROR(
-                    this->get_logger(),
-                    "%s rechazado: aceleracion de trayectoria "
-                    "%.3f rad/s2 > %.3f rad/s2",
-                    msg->name[n].c_str(),
-                    peak_acceleration,
-                    max_trajectory_acceleration_real_
-                    );
-
-                return false;
-            }
-        }
 
 
         if (real_position_only_)
