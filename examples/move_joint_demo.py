@@ -5,8 +5,8 @@ from g1_interface.g1_sensors import G1Sensors
 from g1_interface.g1_low_level import G1LowLevel
 
 JOINT = 'right_elbow'
-DELTA = 0.3
-DURATION = 2.0
+DELTA = 0.05
+DURATION = 3.0
 
 def observe(sensors, seconds):
     start = time.time()

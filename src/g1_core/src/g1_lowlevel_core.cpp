@@ -230,6 +230,13 @@ public:
                         )
                     );
         }
+        else if (simulation_)
+        {
+            RCLCPP_INFO(
+                this->get_logger(),
+                "Modo: SIMULATION - LOW LEVEL"
+                );
+        }
         else
         {
             RCLCPP_INFO(
