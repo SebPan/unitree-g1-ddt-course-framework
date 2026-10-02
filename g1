@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+
+set -u
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+IMAGE="g1-course-sim:dev"
+
+ok() {
+    echo "[OK] $1"
+}
+
+warn() {
+    echo "[WARN] $1"
+}
+
+fail() {
+    echo "[FAIL] $1"
+}
+
+usage() {
+    echo "Unitree G1 Course"
+    echo
+    echo "Uso:"
+    echo "  ./g1 check"
+    echo "  ./g1 real"
+    echo "  ./g1 sim      (próximamente)"
+    echo "  ./g1 shell    (próximamente)"
+}
+
+find_g1_interface() {
+    ip -o -4 addr show |
+        awk '$4 ~ /^192\.168\.123\./ {print $2; exit}'
+}
+
+find_g1_ip() {
+    ip -o -4 addr show |
+        awk '$4 ~ /^192\.168\.123\./ {print $4; exit}' |
+        cut -d/ -f1
+}
+
+check_docker() {
+    if ! command -v docker >/dev/null 2>&1; then
+        fail "Docker no encontrado"
+        return 1
+    fi
+
+    ok "Docker encontrado: $(command -v docker)"
+
+    if ! docker info >/dev/null 2>&1; then
+        fail "Docker Engine no responde"
+        return 1
+    fi
+
+    ok "Docker Engine activo"
+}
+
+check_g1_network() {
+    local interface
+    local ip
+
+    interface="$(find_g1_interface)"
+    ip="$(find_g1_ip)"
+
+    if [ -z "$interface" ]; then
+        fail "No se encontró una interfaz 192.168.123.x"
+        return 1
+    fi
+
+    ok "Interfaz G1: $interface ($ip)"
+
+    if ping -c 1 -W 1 192.168.123.161 >/dev/null 2>&1; then
+        ok "G1 responde en 192.168.123.161"
+    else
+        warn "G1 no responde en 192.168.123.161"
+    fi
+
+    if ping -c 1 -W 1 192.168.123.164 >/dev/null 2>&1; then
+        ok "G1 responde en 192.168.123.164"
+    else
+        warn "G1 no responde en 192.168.123.164"
+    fi
+}
+
+command_check() {
+    echo "=== Unitree G1 Course Check ==="
+    echo
+
+    check_docker || exit 1
+    check_g1_network
+
+    echo
+    echo "Check terminado."
+}
+
+command_real() {
+    echo "=== Unitree G1 REAL ==="
+    echo
+
+    check_docker || exit 1
+
+    local interface
+    interface="$(find_g1_interface)"
+
+    if [ -z "$interface" ]; then
+        fail "No se encontró la red 192.168.123.x"
+        exit 1
+    fi
+
+    ok "Interfaz real: $interface"
+
+    if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+        fail "No existe la imagen $IMAGE"
+        exit 1
+    fi
+
+    ok "Imagen encontrada: $IMAGE"
+
+    echo
+    echo "Iniciando entorno REAL..."
+    echo "Workspace: $SCRIPT_DIR"
+    echo
+
+    docker run --rm -it \
+        --network host \
+        --privileged \
+        -e G1_MODE=real \
+        -e G1_INTERFACE="$interface" \
+        -v "$SCRIPT_DIR:/workspace" \
+        --workdir /workspace \
+        "$IMAGE" \
+        bash -lc "
+            source /opt/ros/humble/setup.bash
+
+            if [ -f /workspace/install/setup.bash ]; then
+                source /workspace/install/setup.bash
+            fi
+
+            export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+            export CYCLONEDDS_URI='<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"$interface\" priority=\"default\" multicast=\"default\" /></Interfaces></General></Domain></CycloneDDS>'
+
+            echo
+            echo '========================================='
+            echo ' Unitree G1 - REAL'
+            echo '========================================='
+            echo 'Interface: $interface'
+            echo 'Mode:      REAL'
+            echo
+            echo 'ROS 2 y CycloneDDS configurados.'
+            echo
+            exec bash --norc -i
+        "
+}
+
+case "${1:-}" in
+    check)
+        command_check
+        ;;
+
+    real)
+        command_real
+        ;;
+
+    sim)
+        echo "El comando 'sim' todavía no está implementado."
+        ;;
+
+    shell)
+        echo "El comando 'shell' todavía no está implementado."
+        ;;
+
+    -h|--help|help|"")
+        usage
+        ;;
+
+    *)
+        echo "Comando desconocido: $1"
+        echo
+        usage
+        exit 1
+        ;;
+esac
