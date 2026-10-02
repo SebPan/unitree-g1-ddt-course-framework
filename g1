@@ -151,6 +151,64 @@ command_real() {
         "
 }
 
+command_sim() {
+    echo "=== Unitree G1 SIM ==="
+    echo
+
+    check_docker || exit 1
+
+    if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+        fail "No existe la imagen $IMAGE"
+        exit 1
+    fi
+
+    ok "Imagen encontrada: $IMAGE"
+
+    echo
+    echo "Iniciando entorno SIM..."
+    echo "Workspace: $SCRIPT_DIR"
+    echo
+
+    docker run --rm -it \
+        --network host \
+        --privileged \
+        -e G1_MODE=sim \
+        -e G1_INTERFACE=lo \
+	-e DISPLAY="$DISPLAY" \
+	-v /tmp/.X11-unix:/tmp/.X11-unix:rw \
+        -v "$SCRIPT_DIR:/workspace" \
+        --workdir /workspace \
+        "$IMAGE" \
+        bash -lc "
+            source /opt/ros/humble/setup.bash
+
+            if [ -f /workspace/install/setup.bash ]; then
+                source /workspace/install/setup.bash
+            fi
+
+            export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+            export CYCLONEDDS_URI='<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"lo\" priority=\"default\" multicast=\"default\" /></Interfaces></General></Domain></CycloneDDS>'
+
+            echo
+            echo '========================================='
+            echo ' Unitree G1 - SIM'
+            echo '========================================='
+            echo 'Interface: lo'
+            echo 'Mode:      SIM'
+            echo
+            echo 'ROS 2 y CycloneDDS configurados.'
+            echo 'Iniciando MuJoCo'
+	    echo
+
+	    run-g1-sim >/tmp/g1_mujoco.log 2>&1 &
+	    sleep 2
+
+	    echo 'Mujoco iniciado.'
+            echo 'Terminal lista.'
+            exec bash --norc -i
+        "
+}
+
 case "${1:-}" in
     check)
         command_check
@@ -161,7 +219,7 @@ case "${1:-}" in
         ;;
 
     sim)
-        echo "El comando 'sim' todavía no está implementado."
+        command_sim
         ;;
 
     shell)
