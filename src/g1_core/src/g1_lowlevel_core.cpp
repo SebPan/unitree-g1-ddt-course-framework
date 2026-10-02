@@ -96,6 +96,30 @@ public:
                 2.0
             );
 
+        max_trajectory_velocity_real_ =
+            this->declare_parameter<double>(
+                "max_trajectory_velocity_real",
+                0.5
+                );
+
+        max_trajectory_acceleration_real_ =
+            this->declare_parameter<double>(
+                "max_trajectory_acceleration_real",
+                1.5
+                );
+
+        min_trajectory_duration_ =
+            this->declare_parameter<double>(
+                "min_trajectory_duration",
+                0.2
+                );
+
+        max_trajectory_duration_ =
+            this->declare_parameter<double>(
+                "max_trajectory_duration",
+                10.0
+                );
+
         watchdog_timeout_ =
             this->declare_parameter<double>(
                 "watchdog_timeout",
@@ -1050,20 +1074,78 @@ bool validate_joint_request(
             std::fabs(
                 requested_position -
                 current_position_[index]
-            );
+                );
 
 
-        if (delta > max_step_real_)
+        const bool trajectory_command =
+            msg->duration > 0.0;
+
+
+        // ----------------------------------------------------
+        // Comando directo: limitar salto
+        // ----------------------------------------------------
+
+        if (!trajectory_command)
         {
-            RCLCPP_ERROR(
-                this->get_logger(),
-                "%s rechazado: salto %.3f rad > %.3f rad",
-                msg->name[n].c_str(),
-                delta,
-                max_step_real_
-            );
+            if (delta > max_step_real_)
+            {
+                RCLCPP_ERROR(
+                    this->get_logger(),
+                    "%s rechazado: salto %.3f rad > %.3f rad",
+                    msg->name[n].c_str(),
+                    delta,
+                    max_step_real_
+                    );
 
-            return false;
+                return false;
+            }
+        }
+
+
+        // ----------------------------------------------------
+        // Trayectoria: limitar velocidad y aceleracion
+        // ----------------------------------------------------
+
+        else
+        {
+            const double duration =
+                msg->duration;
+
+            const double peak_velocity =
+                1.5 * delta / duration;
+
+            const double peak_acceleration =
+                6.0 * delta / (duration * duration);
+
+
+            if (peak_velocity > max_trajectory_velocity_real_)
+            {
+                RCLCPP_ERROR(
+                    this->get_logger(),
+                    "%s rechazado: velocidad de trayectoria "
+                    "%.3f rad/s > %.3f rad/s",
+                    msg->name[n].c_str(),
+                    peak_velocity,
+                    max_trajectory_velocity_real_
+                    );
+
+                return false;
+            }
+
+
+            if (peak_acceleration > max_trajectory_acceleration_real_)
+            {
+                RCLCPP_ERROR(
+                    this->get_logger(),
+                    "%s rechazado: aceleracion de trayectoria "
+                    "%.3f rad/s2 > %.3f rad/s2",
+                    msg->name[n].c_str(),
+                    peak_acceleration,
+                    max_trajectory_acceleration_real_
+                    );
+
+                return false;
+            }
         }
 
 
@@ -1181,6 +1263,35 @@ void joint_command_callback(
 
     const size_t count = msg->name.size();
 
+    if (!std::isfinite(msg->duration) || msg->duration < 0.0)
+    {
+        RCLCPP_ERROR(
+            this->get_logger(),
+            "duration invalido"
+            );
+
+        return;
+    }
+
+
+    if (msg->duration > 0.0)
+    {
+        if (
+            msg->duration < min_trajectory_duration_ ||
+            msg->duration > max_trajectory_duration_
+            )
+        {
+            RCLCPP_ERROR(
+                this->get_logger(),
+                "duration %.3f fuera del rango [%.3f, %.3f] s",
+                msg->duration,
+                min_trajectory_duration_,
+                max_trajectory_duration_
+                );
+
+            return;
+        }
+    }
 
     if (msg->position.size() != count)
     {
@@ -1388,6 +1499,17 @@ void joint_command_callback(
     start_position_ = command_position_;
     target_position_ = new_target;
 
+    if (msg->duration > 0.0)
+    {
+        active_transition_duration_ =
+            msg->duration;
+    }
+    else
+    {
+        active_transition_duration_ =
+            transition_duration_;
+    }
+
     elapsed_time_ = 0.0;
     moving_ = true;
     low_level_active_ = true;
@@ -1455,7 +1577,7 @@ void control_loop()
         double ratio =
             elapsed_time_
             /
-            transition_duration_;
+            active_transition_duration_;
 
 
         if (ratio > 1.0)
@@ -1690,6 +1812,14 @@ uint8_t mode_machine_ = 0;
 double elapsed_time_ = 0.0;
 
 double transition_duration_ = 2.0;
+
+double active_transition_duration_ = 2.0;
+
+double min_trajectory_duration_ = 0.2;
+double max_trajectory_duration_ = 10.0;
+
+double max_trajectory_velocity_real_ = 0.5;
+double max_trajectory_acceleration_real_ = 1.5;
 
 // ========================================================
 // Seguridad para robot REAL

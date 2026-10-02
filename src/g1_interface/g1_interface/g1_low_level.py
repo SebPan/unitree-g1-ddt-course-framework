@@ -66,6 +66,7 @@ class G1LowLevel(Node):
         msg.torque = [float('nan') if torque is None else float(torque)]
         msg.kp = [float('nan') if kp is None else float(kp)]
         msg.kd = [float('nan') if kd is None else float(kd)]
+        msg.duration = 0.0
         self.command_pub.publish(msg)
         return True
 
@@ -104,6 +105,7 @@ class G1LowLevel(Node):
         msg.torque = torques
         msg.kp = kps
         msg.kd = kds
+        msg.duration = 0.0
         
         self.command_pub.publish(msg)
         return True
@@ -111,6 +113,109 @@ class G1LowLevel(Node):
     def get_joint_names(self):
         return self.JOINTS.copy()
 
+    def move_joint(self, joint_name, position, duration=2.0,
+                   velocity=None, torque=None, kp=None, kd=None):
+
+        if joint_name not in self.JOINTS:
+            print(f'Joint not found: {joint_name}')
+            return False
+
+        if duration <= 0:
+            print('Duration must be greater than 0')
+            return False
+
+        msg = JointCommand()
+
+        msg.name = [joint_name]
+        msg.position = [float(position)]
+
+        msg.velocity = [
+            float('nan') if velocity is None else float(velocity)
+        ]
+
+        msg.torque = [
+            float('nan') if torque is None else float(torque)
+        ]
+
+        msg.kp = [
+            float('nan') if kp is None else float(kp)
+        ]
+
+        msg.kd = [
+            float('nan') if kd is None else float(kd)
+        ]
+
+        msg.duration = float(duration)
+
+        self.command_pub.publish(msg)
+
+        return True
+
+    def move_joints(self, joints, duration=2.0, velocity=None, torque=None, kp=None, kd=None):
+
+        if duration <= 0:
+            print('Duration must be greater than 0')
+            return False
+
+        names = []
+        positions = []
+        velocities = []
+        torques = []
+        kps = []
+        kds = []
+
+        velocity = velocity or {}
+        torque = torque or {}
+        kp = kp or {}
+        kd = kd or {}
+
+        for name, position in joints.items():
+
+            if name not in self.JOINTS:
+                print(f'Joint not found: {name}')
+                return False
+
+            names.append(name)
+            positions.append(float(position))
+
+            velocities.append(
+                float(velocity[name])
+                if name in velocity
+                else float('nan')
+            )
+
+            torques.append(
+                float(torque[name])
+                if name in torque
+                else float('nan')
+            )
+
+            kps.append(
+                float(kp[name])
+                if name in kp
+                else float('nan')
+            )
+
+            kds.append(
+                float(kd[name])
+                if name in kd
+                else float('nan')
+            )
+
+        msg = JointCommand()
+
+        msg.name = names
+        msg.position = positions
+        msg.velocity = velocities
+        msg.torque = torques
+        msg.kp = kps
+        msg.kd = kds
+
+        msg.duration = float(duration)
+
+        self.command_pub.publish(msg)
+
+        return True
 
 def main(args=None):
     rclpy.init(args=args)
