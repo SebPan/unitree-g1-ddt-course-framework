@@ -1,0 +1,93 @@
+import rclpy
+from rclpy.node import Node
+
+from geometry_msgs.msg import Twist
+from std_srvs.srv import Trigger
+
+
+class G1HighLevel(Node):
+    def __init__(self):
+        super().__init__('g1_high_level')
+
+        self.cmd_vel_pub = self.create_publisher(Twist, 'g1/cmd_vel', 10)
+        self.stand_client = self.create_client(Trigger, '/g1/stand')
+        self.stop_client = self.create_client(Trigger, '/g1/stop')
+
+    def wait_for_core(self,timeout_sec=5.0):
+        self.get_logger().info('Waiting for core...')
+
+        stand_ok = self.stand_client.wait_for_service(timeout_sec=timeout_sec)
+        stop_ok = self.stop_client.wait_for_service(timeout_sec=timeout_sec)
+
+        if not stand_ok or not stop_ok:
+            self.get_logger().error('Service not available')
+            return False
+
+        self.get_logger().info('Service available')
+        return True
+
+    def stand(self):
+        if not self.stand_client.service_is_ready():
+            self.get_logger().error('Service /g1/stand not available')
+            return False
+
+        request = Trigger.Request()
+        future = self.stand_client.call_async(request)
+        rclpy.spin_until_future_complete(self, future)
+
+        response = future.result()
+
+        if response is None:
+            return False
+
+        if response.success:
+            self.get_logger().info(response.message)
+
+        return response.success
+
+    def walk(self, forward, lateral=0.0, turn=0.0):
+        msg = Twist()
+        msg.linear.x = float(forward)
+        msg.linear.y = float(lateral)
+        msg.angular.z = float(turn)
+        self.cmd_vel_pub.publish(msg)
+
+    def stop(self):
+        if not self.stop_client.service_is_ready():
+            self.get_logger().info('Service /g1/stop not available')
+            return False
+
+        request = Trigger.Request()
+        future = self.stop_client.call_async(request)
+        rclpy.spin_until_future_complete(self, future)
+        response = future.result()
+
+        if response is None:
+            return False
+
+        if response.success:
+            self.get_logger().info(response.message)
+
+        return response.success
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    robot = G1HighLevel()
+
+    try:
+        if not robot.wait_for_core():
+            return
+
+        robot.get_logger().info('High-level interface ready.')
+        rclpy.spin(robot)
+
+    except KeyboardInterrupt:
+        pass
+
+    finally:
+        robot.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()

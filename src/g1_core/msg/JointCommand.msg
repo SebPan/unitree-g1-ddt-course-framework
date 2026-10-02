@@ -1,0 +1,8 @@
+string[] name
+
+float64[] position
+float64[] velocity
+float64[] torque
+
+float64[] kp
+float64[] kd

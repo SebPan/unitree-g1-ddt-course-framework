@@ -1,0 +1,22 @@
+# ROS / colcon
+build/
+install/
+log/
+
+# Runtime / temporary
+head_camera.png
+
+# External repositories / dependencies
+controller/
+
+# Python
+__pycache__/
+*.pyc
+
+# Editors
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
