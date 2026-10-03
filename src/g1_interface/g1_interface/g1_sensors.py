@@ -1,179 +1,369 @@
+import math
+import threading
+import time
+
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
 
-from unitree_hg.msg import LowState
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import JointState
+from sensor_msgs.msg import Imu
 
-import numpy as np
 
-class G1Sensors(Node):
-    JOINT_INDEX = {
-        # Left leg
-        "left_hip_pitch": 0,
-        "left_hip_roll": 1,
-        "left_hip_yaw": 2,
-        "left_knee": 3,
-        "left_ankle_pitch": 4,
-        "left_ankle_roll": 5,
+class G1Sensors:
+    """
+    API educativa de sensores del Unitree G1.
 
-        # Right leg
-        "right_hip_pitch": 6,
-        "right_hip_roll": 7,
-        "right_hip_yaw": 8,
-        "right_knee": 9,
-        "right_ankle_pitch": 10,
-        "right_ankle_roll": 11,
+    Esta clase NO conoce:
+      - LowState
+      - DDS
+      - motor_id
+      - índices internos de Unitree
+      - diferencias SIM / REAL
 
-        # Waist
-        "waist_yaw": 12,
+    Solo consume la interfaz normalizada publicada por g1_core:
 
-        # Left arm
-        "left_shoulder_pitch": 15,
-        "left_shoulder_roll": 16,
-        "left_shoulder_yaw": 17,
-        "left_elbow": 18,
-        "left_wrist_roll": 19,
+        /g1/joint_states
+        /g1/imu
+    """
 
-        # Right arm
-        "right_shoulder_pitch": 22,
-        "right_shoulder_roll": 23,
-        "right_shoulder_yaw": 24,
-        "right_elbow": 25,
-        "right_wrist_roll": 26,
-    }
     def __init__(self):
-        super().__init__('g1_sensors')
+        self._owns_rclpy = False
 
-        self.joints = {}
-        self.imu = None
-        self.camera_image = None
+        if not rclpy.ok():
+            rclpy.init()
+            self._owns_rclpy = True
 
-        self.camera_received = False
-        self.joint_state_received = False
-        self.imu_received = False
+        self._node = Node("g1_sensors")
 
-        self.low_state_sub = self.create_subscription(LowState, '/lowstate', self.low_state_callback, 10)
-        self.camera_sub = self.create_subscription(Image, '/camera/image_raw', self.camera_callback, qos_profile_sensor_data)
+        self._lock = threading.Lock()
 
-        self.timer = self.create_timer(1.0, self.print_status)
+        self._joint_event = threading.Event()
+        self._imu_event = threading.Event()
 
-        self.get_logger().info('G1 Sensors Node Initialized')
+        self._joint_names = []
 
-    def low_state_callback(self, msg):
-        self.joints = {}
+        self._position = {}
+        self._velocity = {}
+        self._effort = {}
 
-        for name, index in self.JOINT_INDEX.items():
-            motor = msg.motor_state[index]
-            self.joints[name] = {
-                'position': motor.q,
-                'velocity': motor.dq,
-                'effort': motor.tau_est,
-            }
+        self._imu = None
 
-        imu = msg.imu_state
-        self.imu = {
-            'orientation': {
-                'w': imu.quaternion[0],
-                'x': imu.quaternion[1],
-                'y': imu.quaternion[2],
-                'z': imu.quaternion[3]
-            },
-            'angular_velocity': {
-                'x': imu.gyroscope[0],
-                'y': imu.gyroscope[1],
-                'z': imu.gyroscope[2]
-            },
-            'linear_acceleration': {
-                'x': imu.accelerometer[0],
-                'y': imu.accelerometer[1],
-                'z': imu.accelerometer[2]
-            },
-            'rpy' : {
-                'roll': imu.rpy[0],
-                'pitch': imu.rpy[1],
-                'yaw': imu.rpy[2]
-            }
-        }
+        self._joint_subscription = self._node.create_subscription(
+            JointState,
+            "/g1/joint_states",
+            self._joint_callback,
+            10,
+        )
 
-        if not self.joint_state_received:
-            self.get_logger().info('Low State Received')
+        self._imu_subscription = self._node.create_subscription(
+            Imu,
+            "/g1/imu",
+            self._imu_callback,
+            10,
+        )
 
-        self.joint_state_received = True
-        self.imu_received = True
+        self._running = True
 
-    def camera_callback(self, msg):
-        if msg.encoding != 'rgb8':
-            self.get_logger().info(f'Unsupported encoding: {msg.encoding}')
+        self._spin_thread = threading.Thread(
+            target=self._spin,
+            daemon=True,
+        )
+
+        self._spin_thread.start()
+
+
+    # ============================================================
+    # ROS interno
+    # ============================================================
+
+    def _spin(self):
+        while self._running and rclpy.ok():
+            rclpy.spin_once(
+                self._node,
+                timeout_sec=0.1,
+            )
+
+
+    def _joint_callback(self, msg: JointState):
+        count = len(msg.name)
+
+        if len(msg.position) < count:
             return
 
-        image = np.frombuffer(msg.data, dtype=np.uint8)
-        image = image.reshape(msg.height, msg.width, 3)
-        self.camera_image = image.copy()
+        with self._lock:
+            self._joint_names = list(msg.name)
 
-        if not self.camera_received:
-            self.get_logger().info(f'Camera Received: {msg.width} x {msg.height} {msg.encoding}')
-        self.camera_received = True
+            self._position = {
+                name: msg.position[i]
+                for i, name in enumerate(msg.name)
+            }
 
-    def get_camera_image(self):
-        return self.camera_image
+            self._velocity = {
+                name: (
+                    msg.velocity[i]
+                    if i < len(msg.velocity)
+                    else 0.0
+                )
+                for i, name in enumerate(msg.name)
+            }
 
-    def get_joint_position(self, joint_name):
-        if joint_name not in self.joints:
-            return None
-        return self.joints[joint_name]['position']
+            self._effort = {
+                name: (
+                    msg.effort[i]
+                    if i < len(msg.effort)
+                    else 0.0
+                )
+                for i, name in enumerate(msg.name)
+            }
 
-    def get_joint_velocity(self, joint_name):
-        if joint_name not in self.joints:
-            return None
-        return self.joints[joint_name]['velocity']
+        self._joint_event.set()
 
-    def get_joint_effort(self, joint_name):
-        if joint_name not in self.joints:
-            return None
-        return self.joints[joint_name]['effort']
 
-    def get_imu(self):
-        return self.imu
+    def _imu_callback(self, msg: Imu):
+        qx = msg.orientation.x
+        qy = msg.orientation.y
+        qz = msg.orientation.z
+        qw = msg.orientation.w
+
+        roll, pitch, yaw = self._quaternion_to_rpy(
+            qx,
+            qy,
+            qz,
+            qw,
+        )
+
+        imu = {
+            "orientation": {
+                "x": qx,
+                "y": qy,
+                "z": qz,
+                "w": qw,
+            },
+
+            "gyroscope": {
+                "x": msg.angular_velocity.x,
+                "y": msg.angular_velocity.y,
+                "z": msg.angular_velocity.z,
+            },
+
+            "accelerometer": {
+                "x": msg.linear_acceleration.x,
+                "y": msg.linear_acceleration.y,
+                "z": msg.linear_acceleration.z,
+            },
+
+            "rpy": {
+                "roll": roll,
+                "pitch": pitch,
+                "yaw": yaw,
+            },
+        }
+
+        with self._lock:
+            self._imu = imu
+
+        self._imu_event.set()
+
+
+    @staticmethod
+    def _quaternion_to_rpy(x, y, z, w):
+        sinr_cosp = 2.0 * (
+            w * x +
+            y * z
+        )
+
+        cosr_cosp = 1.0 - 2.0 * (
+            x * x +
+            y * y
+        )
+
+        roll = math.atan2(
+            sinr_cosp,
+            cosr_cosp,
+        )
+
+
+        sinp = 2.0 * (
+            w * y -
+            z * x
+        )
+
+        if abs(sinp) >= 1.0:
+            pitch = math.copysign(
+                math.pi / 2.0,
+                sinp,
+            )
+        else:
+            pitch = math.asin(sinp)
+
+
+        siny_cosp = 2.0 * (
+            w * z +
+            x * y
+        )
+
+        cosy_cosp = 1.0 - 2.0 * (
+            y * y +
+            z * z
+        )
+
+        yaw = math.atan2(
+            siny_cosp,
+            cosy_cosp,
+        )
+
+        return roll, pitch, yaw
+
+
+    # ============================================================
+    # Estado
+    # ============================================================
+
+    def wait_for_data(self, timeout=2.0):
+        """
+        Espera hasta recibir joints e IMU.
+
+        Retorna:
+            True  -> ambos disponibles
+            False -> timeout
+        """
+
+        start = time.monotonic()
+
+        if not self._joint_event.wait(timeout):
+            return False
+
+        elapsed = time.monotonic() - start
+        remaining = max(0.0, timeout - elapsed)
+
+        return self._imu_event.wait(remaining)
+
+
+    def has_joint_data(self):
+        return self._joint_event.is_set()
+
+
+    def has_imu_data(self):
+        return self._imu_event.is_set()
+
+
+    # ============================================================
+    # Articulaciones
+    # ============================================================
 
     def get_joint_names(self):
-        return list(self.joints.keys())
+        with self._lock:
+            return list(self._joint_names)
 
-    def print_status(self):
-        print()
-        print('==== G1 ====')
-        if self.joint_state_received:
-            elbow = self.get_joint_position('right_elbow')
-            if elbow is not None:
-                print('Right elbow', round(elbow, 2))
-            else:
-                print('Waiting joint states')
 
-        if self.imu_received:
-            print('Orientation:', {key: round(value, 3) for key, value in self.imu['orientation'].items()})
-            print('Gyroscope:', {key: round(value, 3) for key, value in self.imu['angular_velocity'].items()})
-            print('Acceleration:', {key: round(value, 3) for key, value in self.imu['linear_acceleration'].items()})
-        else:
-            print('Waiting IMU')
+    def _check_joint(self, name):
+        if not self._joint_event.is_set():
+            raise RuntimeError(
+                "Todavia no se recibieron datos "
+                "de articulaciones."
+            )
 
-        print('=======================')
+        if name not in self._position:
+            raise ValueError(
+                f"Articulacion desconocida: {name}"
+            )
 
-        if self.camera_received:
-            print(f'Camera Received: {self.camera_image.shape} RGB')
-        else:
-            print('Waiting for camera')
 
-def main(args=None):
-    rclpy.init(args=args)
-    node = G1Sensors()
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        node.destroy_node()
-        if rclpy.ok():
+    def get_joint_position(self, name):
+        self._check_joint(name)
+
+        with self._lock:
+            return self._position[name]
+
+
+    def get_joint_velocity(self, name):
+        self._check_joint(name)
+
+        with self._lock:
+            return self._velocity[name]
+
+
+    def get_joint_effort(self, name):
+        self._check_joint(name)
+
+        with self._lock:
+            return self._effort[name]
+
+
+    def get_joint_state(self, name):
+        """
+        Retorna q, dq y tau_est de una articulacion.
+        """
+
+        self._check_joint(name)
+
+        with self._lock:
+            return {
+                "position": self._position[name],
+                "velocity": self._velocity[name],
+                "effort": self._effort[name],
+            }
+
+
+    def get_all_joint_states(self):
+        if not self._joint_event.is_set():
+            raise RuntimeError(
+                "Todavia no se recibieron datos "
+                "de articulaciones."
+            )
+
+        with self._lock:
+            return {
+                name: {
+                    "position": self._position[name],
+                    "velocity": self._velocity[name],
+                    "effort": self._effort[name],
+                }
+                for name in self._joint_names
+            }
+
+
+    # ============================================================
+    # IMU
+    # ============================================================
+
+    def get_imu(self):
+        if not self._imu_event.is_set():
+            raise RuntimeError(
+                "Todavia no se recibieron datos de IMU."
+            )
+
+        with self._lock:
+            return {
+                section: dict(values)
+                for section, values in self._imu.items()
+            }
+
+
+    # ============================================================
+    # Cierre
+    # ============================================================
+
+    def close(self):
+        self._running = False
+
+        if (
+            self._spin_thread.is_alive()
+            and threading.current_thread()
+            is not self._spin_thread
+        ):
+            self._spin_thread.join(
+                timeout=1.0
+            )
+
+        self._node.destroy_node()
+
+        if self._owns_rclpy and rclpy.ok():
             rclpy.shutdown()
 
-if __name__ == '__main__':
-    main()
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
