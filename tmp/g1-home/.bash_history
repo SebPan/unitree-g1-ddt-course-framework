@@ -39,3 +39,6 @@ exit
 cd /workspace
 colcon build   --packages-select g1_core   --symlink-install
 exit
+cd /workspace
+colcon build   --packages-select g1_core   --symlink-install
+exit

@@ -930,41 +930,9 @@ bool validate_joint_request(
         const double duration =
             msg->duration;
 
-        const double peak_velocity =
-            1.5 * delta / duration;
-
-        const double peak_acceleration =
-            6.0 * delta / (duration * duration);
 
 
-        if (peak_velocity > max_trajectory_velocity_real_)
-        {
-            RCLCPP_ERROR(
-                this->get_logger(),
-                "%s rechazado: velocidad de trayectoria "
-                "%.3f rad/s > %.3f rad/s",
-                msg->name[n].c_str(),
-                peak_velocity,
-                max_trajectory_velocity_real_
-                );
 
-            return false;
-        }
-
-
-        if (peak_acceleration > max_trajectory_acceleration_real_)
-        {
-            RCLCPP_ERROR(
-                this->get_logger(),
-                "%s rechazado: aceleracion de trayectoria "
-                "%.3f rad/s2 > %.3f rad/s2",
-                msg->name[n].c_str(),
-                peak_acceleration,
-                max_trajectory_acceleration_real_
-                );
-
-            return false;
-        }
     }
 
 
@@ -1036,24 +1004,6 @@ void joint_command_callback(
     }
 
 
-    if (msg->duration > 0.0)
-    {
-        if (
-            msg->duration < min_trajectory_duration_ ||
-            msg->duration > max_trajectory_duration_
-            )
-        {
-            RCLCPP_ERROR(
-                this->get_logger(),
-                "duration %.3f fuera del rango [%.3f, %.3f] s",
-                msg->duration,
-                min_trajectory_duration_,
-                max_trajectory_duration_
-                );
-
-            return;
-        }
-    }
 
     if (msg->position.size() != count)
     {
@@ -1580,12 +1530,6 @@ double elapsed_time_ = 0.0;
 double transition_duration_ = 2.0;
 
 double active_transition_duration_ = 2.0;
-
-double min_trajectory_duration_ = 0.2;
-double max_trajectory_duration_ = 10.0;
-
-double max_trajectory_velocity_real_ = 0.5;
-double max_trajectory_acceleration_real_ = 1.5;
 
 // ========================================================
 // Seguridad para robot REAL
