@@ -20,3 +20,7 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# Runtime/container files
+tmp/g1-home/
+mujoco
