@@ -1230,8 +1230,6 @@ void joint_command_callback(
         command_position_ =
             target_position_;
 
-        command_velocity_.fill(0.0f);
-
         elapsed_time_ = 0.0;
         moving_ = false;
     }
@@ -1398,7 +1396,8 @@ void control_loop()
         cmd.motor_cmd[motor].q =
             command_position_[i];
 
-        cmd.motor_cmd[motor].dq = 0.0f;
+        cmd.motor_cmd[motor].dq =
+            command_velocity_[i];
 
         cmd.motor_cmd[motor].tau =
             command_torque_[i];
