@@ -1226,9 +1226,6 @@ void joint_command_callback(
     moving_ = true;
     low_level_active_ = true;
 
-    watchdog_armed_ = false;
-
-
     RCLCPP_INFO(
         this->get_logger(),
         "LOW LEVEL activo"
@@ -1347,39 +1344,14 @@ void control_loop()
             command_velocity_.fill(0.0f);
 
             moving_ = false;
-            watchdog_start_time_ =
-                std::chrono::steady_clock::now();
-            watchdog_armed_ = true;
-        }
+
+}
     }
 
     // ----------------------------------------------------
     // Watchdog
     // ----------------------------------------------------
 
-    if (!moving_ && watchdog_armed_)
-    {
-        const double watchdog_elapsed =
-            std::chrono::duration<double>(
-                std::chrono::steady_clock::now()
-                -
-                watchdog_start_time_
-                ).count();
-
-        if (watchdog_elapsed >= watchdog_timeout_)
-        {
-            low_level_active_ = false;
-            watchdog_armed_ = false;
-
-            RCLCPP_WARN(
-                this->get_logger(),
-                "WATCHDOG: sin nuevos comandos. "
-                "LOW LEVEL desactivado."
-                );
-
-            return;
-        }
-    }
 
     // ----------------------------------------------------
     // Crear LowCmd
@@ -1502,13 +1474,6 @@ const float arm_change_epsilon_ = 0.0005f;
 bool state_received_ = false;
 bool low_level_active_ = false;
 bool moving_ = false;
-
-bool watchdog_armed_ = false;
-
-std::chrono::steady_clock::time_point
-    watchdog_start_time_;
-
-double watchdog_timeout_ = 1.0;
 
 // ========================================================
 // SIMULATION
