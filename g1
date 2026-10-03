@@ -7,7 +7,7 @@ IMAGE="g1-course-sim:dev"
 CONTAINER_NAME="g1-course"
 HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
-CONTAINER_HOME="tmp/g1-home"
+CONTAINER_HOME="/tmp/g1-home"
 RELEASE_MODE_BIN="$HOME/unitree_ros2/example/install/unitree_ros2_example/lib/unitree_ros2_example/g1_release_mode"
 UNITREE_ROS_SETUP="$HOME/unitree_ros2/example/install/setup.bash"
 
@@ -218,6 +218,25 @@ command_real() {
             echo
             echo 'ROS 2 y CycloneDDS configurados.'
             echo
+            echo 'Iniciando g1_core REAL...'
+
+            ros2 run g1_core g1_core \
+                --ros-args \
+                -p simulation:=false \
+                >/tmp/g1_core.log 2>&1 &
+
+            sleep 2
+
+            if ! pgrep -f 'g1_core' >/dev/null; then
+                echo
+                echo '[ERROR] g1_core REAL no pudo iniciar.'
+                echo '----- /tmp/g1_core.log -----'
+                cat /tmp/g1_core.log
+                exit 1
+            fi
+
+            echo 'g1_core REAL iniciado.'
+            echo 'Terminal lista.'
             exec bash --norc -i
         "
 }
@@ -275,10 +294,28 @@ command_sim() {
             echo 'Iniciando MuJoCo'
 	    echo
 
-	    run-g1-sim >/tmp/g1_mujoco.log 2>&1 &
-	    sleep 2
+            setsid run-g1-sim </dev/null >/tmp/g1_mujoco.log 2>&1 &
+            sleep 2
 
-	    echo 'Mujoco iniciado.'
+            echo 'Mujoco iniciado.'
+            echo 'Iniciando g1_core SIM...'
+
+            setsid ros2 run g1_core g1_core \
+                --ros-args \
+                -p simulation:=true \
+                </dev/null >/tmp/g1_core.log 2>&1 &
+
+            sleep 2
+
+            if ! pgrep -f 'g1_core' >/dev/null; then
+                echo
+                echo '[ERROR] g1_core no pudo iniciar.'
+                echo '----- /tmp/g1_core.log -----'
+                cat /tmp/g1_core.log
+                exit 1
+            fi
+
+            echo 'g1_core iniciado.'
             echo 'Terminal lista.'
             exec bash --norc -i
         "

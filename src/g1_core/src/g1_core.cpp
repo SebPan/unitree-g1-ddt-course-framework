@@ -1,5 +1,6 @@
 #include <array>
 #include "sim_udp_sensors.hpp"
+#include "sim_udp_commands.hpp"
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -52,7 +53,45 @@ public:
         if (simulation_)
         {
             sim_udp_sensors_ =
-                std::make_unique<SimUdpSensors>(this);
+                std::make_unique<SimUdpSensors>(
+                    this,
+                    [this](const SimUdpSensors::Packet &packet)
+                    {
+                        for (int i = 0; i < G1_NUM_JOINTS; ++i)
+                        {
+                            current_position_[i] =
+                                static_cast<float>(packet.q[i]);
+
+                            current_velocity_[i] =
+                                static_cast<float>(packet.dq[i]);
+
+                            current_torque_[i] =
+                                static_cast<float>(packet.tau[i]);
+                        }
+
+                        if (!state_received_)
+                        {
+                            command_position_ =
+                                current_position_;
+
+                            start_position_ =
+                                current_position_;
+
+                            target_position_ =
+                                current_position_;
+
+                            state_received_ = true;
+
+                            RCLCPP_INFO(
+                                this->get_logger(),
+                                "Estado interno SIM inicializado"
+                            );
+                        }
+                    }
+                );
+
+            sim_udp_commands_ =
+                std::make_unique<SimUdpCommands>();
         }
 
 
@@ -1490,6 +1529,19 @@ void control_loop()
     // Crear LowCmd
     // ----------------------------------------------------
 
+    if (simulation_)
+    {
+        sim_udp_commands_->send(
+            command_position_,
+            command_velocity_,
+            command_torque_,
+            command_kp_,
+            command_kd_
+        );
+
+        return;
+    }
+
     unitree_hg::msg::LowCmd cmd;
 
 
@@ -1628,6 +1680,8 @@ bool moving_ = false;
 // ========================================================
 
 std::unique_ptr<SimUdpSensors> sim_udp_sensors_;
+
+std::unique_ptr<SimUdpCommands> sim_udp_commands_;
 
     bool simulation_ = false;
 

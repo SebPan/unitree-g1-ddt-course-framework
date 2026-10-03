@@ -45,12 +45,13 @@ class G1LowLevel(Node):
 
     def wait_for_core(self, timeout=5.0):
         start = time.time()
-        while time.time() - start < timeout:
-            rclpy.spin_once(self, timeout_sec=0.1)
 
+        while time.time() - start < timeout:
             if self.command_pub.get_subscription_count() > 0:
                 self.get_logger().info('G1 Core connected')
                 return True
+
+            time.sleep(0.1)
 
         self.get_logger().warning('G1 Core not connected')
         return False
@@ -73,10 +74,12 @@ class G1LowLevel(Node):
     def set_joints(self, joints, velocity=None, torque=None, kp=None, kd=None):
         names = []
         positions = []
+        velocities = []
         torques = []
         kps = []
         kds = []
 
+        velocity = velocity or {}
         torque = torque or {}
         kp = kp or {}
         kd = kd or {}
@@ -99,8 +102,7 @@ class G1LowLevel(Node):
         msg = JointCommand()
         msg.name = names
         msg.position = positions
-        # dq(t) es generado por g1_core a partir de la trayectoria.
-        msg.velocity = []
+        msg.velocity = velocities
         msg.torque = torques
         msg.kp = kps
         msg.kd = kds

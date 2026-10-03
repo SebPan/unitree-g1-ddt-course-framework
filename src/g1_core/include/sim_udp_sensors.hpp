@@ -13,6 +13,7 @@
 #include <cerrno>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -49,9 +50,15 @@ public:
 
 #pragma pack(pop)
 
+    using StateCallback =
+        std::function<void(const Packet &)>;
 
-    explicit SimUdpSensors(rclcpp::Node *node)
-        : node_(node)
+
+    explicit SimUdpSensors(
+        rclcpp::Node *node,
+        StateCallback state_callback)
+        : node_(node),
+          state_callback_(state_callback)
     {
         socket_ = ::socket(AF_INET, SOCK_DGRAM, 0);
 
@@ -191,6 +198,11 @@ private:
         }
 
 
+        if (state_callback_)
+        {
+            state_callback_(newest);
+        }
+
         publish_joint_state(newest);
         publish_imu(newest);
     }
@@ -251,6 +263,8 @@ private:
 
 
 private:
+
+    StateCallback state_callback_;
 
     rclcpp::Node *node_;
 
