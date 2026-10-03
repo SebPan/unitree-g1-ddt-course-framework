@@ -189,7 +189,7 @@ command_real() {
 
     docker run --rm -it \
 	--user "$HOST_UID:$HOST_GID" \
-	-E HOME="$CONTAINER_HOME" \
+	-e HOME="$CONTAINER_HOME" \
         --name "$CONTAINER_NAME" \
         --network host \
         --privileged \
