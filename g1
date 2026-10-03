@@ -7,7 +7,7 @@ IMAGE="g1-course-sim:dev"
 CONTAINER_NAME="g1-course"
 HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
-CONTAINER_HOME="/home/g1"
+CONTAINER_HOME="tmp/g1-home"
 RELEASE_MODE_BIN="$HOME/unitree_ros2/example/install/unitree_ros2_example/lib/unitree_ros2_example/g1_release_mode"
 UNITREE_ROS_SETUP="$HOME/unitree_ros2/example/install/setup.bash"
 

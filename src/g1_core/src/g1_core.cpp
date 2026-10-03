@@ -1,4 +1,5 @@
 #include <array>
+#include "sim_udp_sensors.hpp"
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -47,6 +48,13 @@ public:
                 "simulation",
                 false
             );
+
+        if (simulation_)
+        {
+            sim_udp_sensors_ =
+                std::make_unique<SimUdpSensors>(this);
+        }
+
 
         RCLCPP_INFO(
             this->get_logger(),
@@ -1619,7 +1627,9 @@ bool moving_ = false;
 // SIMULATION
 // ========================================================
 
-bool simulation_ = false;
+std::unique_ptr<SimUdpSensors> sim_udp_sensors_;
+
+    bool simulation_ = false;
 
 int udp_socket_ = -1;
 

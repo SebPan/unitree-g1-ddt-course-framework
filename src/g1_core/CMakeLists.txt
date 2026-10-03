@@ -79,6 +79,11 @@ target_include_directories(
 )
 
 
+
+target_include_directories(g1_core_node PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
 ament_target_dependencies(
   g1_core_node
   rclcpp
