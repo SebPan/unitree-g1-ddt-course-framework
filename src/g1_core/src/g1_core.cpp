@@ -816,32 +816,6 @@ void lowstate_callback(
 // Permisos de articulaciones en robot REAL
 // ========================================================
 
-bool is_joint_enabled_in_real(int index)
-{
-    // Piernas:
-    // indices 0 - 11
-    if (index >= 0 && index <= 11)
-    {
-        return real_enable_legs_;
-    }
-
-    // Waist:
-    // index 12
-    if (index == 12)
-    {
-        return real_enable_waist_;
-    }
-
-    // Brazos:
-    // indices 13 - 22
-    if (index >= 13 && index <= 22)
-    {
-        return real_enable_arms_;
-    }
-
-    // Un indice desconocido nunca se habilita.
-    return false;
-}
 
 
 // ========================================================
@@ -1000,99 +974,14 @@ bool validate_joint_request(
 
     if (!simulation_)
     {
-        if (!is_joint_enabled_in_real(index))
-        {
-            RCLCPP_ERROR(
-                this->get_logger(),
-                "%s rechazado: grupo deshabilitado en REAL",
-                msg->name[n].c_str()
-                );
-
-            return false;
-        }
 
 
         // set_joint(): impedir saltos directos grandes.
         // move_joint(): usa las protecciones de trayectoria anteriores.
-        if (!trajectory_command && delta > max_step_real_)
-        {
-            RCLCPP_ERROR(
-                this->get_logger(),
-                "%s rechazado: salto %.3f rad > %.3f rad",
-                msg->name[n].c_str(),
-                delta,
-                max_step_real_
-                );
-
-            return false;
-        }
 
 
 
 
-        if (real_position_only_)
-        {
-            if (
-                !msg->velocity.empty() &&
-                std::isfinite(msg->velocity[n]) &&
-                std::fabs(msg->velocity[n]) > 0.0001
-            )
-            {
-                RCLCPP_ERROR(
-                    this->get_logger(),
-                    "%s rechazado: velocity override no permitido en REAL",
-                    msg->name[n].c_str()
-                );
-
-                return false;
-            }
-
-
-            if (
-                !msg->torque.empty() &&
-                std::isfinite(msg->torque[n]) &&
-                std::fabs(msg->torque[n]) > 0.0001
-            )
-            {
-                RCLCPP_ERROR(
-                    this->get_logger(),
-                    "%s rechazado: torque override no permitido en REAL",
-                    msg->name[n].c_str()
-                );
-
-                return false;
-            }
-
-
-            if (
-                !msg->kp.empty() &&
-                std::isfinite(msg->kp[n])
-            )
-            {
-                RCLCPP_ERROR(
-                    this->get_logger(),
-                    "%s rechazado: kp override no permitido en REAL",
-                    msg->name[n].c_str()
-                );
-
-                return false;
-            }
-
-
-            if (
-                !msg->kd.empty() &&
-                std::isfinite(msg->kd[n])
-            )
-            {
-                RCLCPP_ERROR(
-                    this->get_logger(),
-                    "%s rechazado: kd override no permitido en REAL",
-                    msg->name[n].c_str()
-                );
-
-                return false;
-            }
-        }
     }
 
 
@@ -1563,20 +1452,6 @@ void control_loop()
             motor_id_[i];
 
         // En REAL podemos deshabilitar grupos completos.
-        if (!simulation_ && !is_joint_enabled_in_real(i))
-        {
-            cmd.motor_cmd[motor].mode = 0;
-
-            cmd.motor_cmd[motor].q =
-                current_position_[i];
-
-            cmd.motor_cmd[motor].dq = 0.0f;
-            cmd.motor_cmd[motor].tau = 0.0f;
-            cmd.motor_cmd[motor].kp = 0.0f;
-            cmd.motor_cmd[motor].kd = 0.0f;
-
-            continue;
-        }
 
         // Motor habilitado.
         cmd.motor_cmd[motor].mode = 1;
@@ -1716,13 +1591,8 @@ double max_trajectory_acceleration_real_ = 1.5;
 // Seguridad para robot REAL
 // ========================================================
 
-bool real_enable_legs_ = true;
-bool real_enable_waist_ = true;
-bool real_enable_arms_ = true;
 
-bool real_position_only_ = true;
 
-double max_step_real_ = 0.20;
 };
 
 

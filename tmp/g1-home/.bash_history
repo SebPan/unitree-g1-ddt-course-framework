@@ -36,3 +36,6 @@ cd ~/Unitree_G1/g1_sim/workspace
 git add -A
 git commit -m "Remove control mode from g1_core"
 exit
+cd /workspace
+colcon build   --packages-select g1_core   --symlink-install
+exit
