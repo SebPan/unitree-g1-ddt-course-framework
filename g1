@@ -4,6 +4,12 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGE="g1-course-sim:dev"
+CONTAINER_NAME="g1-course"
+HOST_UID="$(id -u)"
+HOST_GID="$(id -g)"
+CONTAINER_HOME="tmp/g1-home"
+RELEASE_MODE_BIN="$HOME/unitree_ros2/example/install/unitree_ros2_example/lib/unitree_ros2_example/g1_release_mode"
+UNITREE_ROS_SETUP="$HOME/unitree_ros2/example/install/setup.bash"
 
 ok() {
     echo "[OK] $1"
@@ -17,14 +23,70 @@ fail() {
     echo "[FAIL] $1"
 }
 
+release_motion_mode()
+{
+    local interface="$1"
+    local output
+    local rc
+
+    echo
+    echo "Comprobando MotionSwitcher del G1..."
+
+    if [ ! -x "$RELEASE_MODE_BIN" ]; then
+        fail "No se encontro g1_release_mode:"
+        echo "  $RELEASE_MODE_BIN"
+        return 1
+    fi
+
+    if [ ! -f "$UNITREE_ROS_SETUP" ]; then
+        fail "No se encontro el entorno Unitree ROS 2:"
+        echo "  $UNITREE_ROS_SETUP"
+        return 1
+    fi
+
+    output="$(
+        (
+            set +u
+            source /opt/ros/humble/setup.bash
+            source "$UNITREE_ROS_SETUP"
+	    set -u
+            export ROS_DOMAIN_ID=0
+            export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
+            export CYCLONEDDS_URI="<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"$interface\" priority=\"default\" multicast=\"default\" /></Interfaces></General></Domain></CycloneDDS>"
+
+            timeout 15s "$RELEASE_MODE_BIN"
+        ) 2>&1
+    )"
+
+    rc=$?
+
+    echo "$output"
+
+    if [ "$rc" -eq 124 ]; then
+        fail "Timeout esperando MotionSwitcher."
+        return 1
+    fi
+
+    if echo "$output" | grep -q \
+        "Motion control liberado correctamente"
+    then
+        ok "Motion control del G1 liberado."
+        return 0
+    fi
+
+    fail "No se pudo confirmar que MotionSwitcher quedo libre."
+    return 1
+}
+
 usage() {
     echo "Unitree G1 Course"
     echo
     echo "Uso:"
     echo "  ./g1 check"
     echo "  ./g1 real"
-    echo "  ./g1 sim      (próximamente)"
-    echo "  ./g1 shell    (próximamente)"
+    echo "  ./g1 sim"
+    echo "  ./g1 shell"
 }
 
 find_g1_interface() {
@@ -120,7 +182,15 @@ command_real() {
     echo "Workspace: $SCRIPT_DIR"
     echo
 
+    if ! release_motion_mode "$interface"; then
+    fail "No se iniciara REAL mientras MotionSwitcher siga activo."
+    exit 1
+    fi
+
     docker run --rm -it \
+	--user "$HOST_UID:$HOST_GID" \
+	-E HOME="$CONTAINER_HOME" \
+        --name "$CONTAINER_NAME" \
         --network host \
         --privileged \
         -e G1_MODE=real \
@@ -129,6 +199,7 @@ command_real() {
         --workdir /workspace \
         "$IMAGE" \
         bash -lc "
+	    mkdir -p '$CONTAINER_HOME'
             source /opt/ros/humble/setup.bash
 
             if [ -f /workspace/install/setup.bash ]; then
@@ -170,6 +241,9 @@ command_sim() {
     echo
 
     docker run --rm -it \
+	--user "$HOST_UID:$HOST_GID" \
+	-e HOME="$CONTAINER_HOME" \
+	--name "$CONTAINER_NAME" \
         --network host \
         --privileged \
         -e G1_MODE=sim \
@@ -180,6 +254,7 @@ command_sim() {
         --workdir /workspace \
         "$IMAGE" \
         bash -lc "
+            mkdir -p '$CONTAINER_HOME'
             source /opt/ros/humble/setup.bash
 
             if [ -f /workspace/install/setup.bash ]; then
@@ -209,6 +284,53 @@ command_sim() {
         "
 }
 
+command_shell()
+{
+    if ! /usr/bin/docker ps \
+        --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"
+    then
+        echo "No hay un entorno G1 ejecutandose."
+        echo "Primero usa:"
+        echo "  ./g1 sim"
+        echo "o:"
+        echo "  ./g1 real"
+        exit 1
+    fi
+
+    /usr/bin/docker exec -it \
+        --user "$HOST_UID:$HOST_GID" \
+        -e HOME="$CONTAINER_HOME" \
+        "$CONTAINER_NAME" \
+        bash --norc -c '
+            source /opt/ros/humble/setup.bash
+            source /workspace/install/setup.bash
+
+            export ROS_DOMAIN_ID=0
+            export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
+            if [ "$G1_MODE" = "real" ]; then
+
+                export CYCLONEDDS_URI="<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"$G1_INTERFACE\" priority=\"default\" multicast=\"default\" /></Interfaces></General></Domain></CycloneDDS>"
+
+            else
+
+                export G1_INTERFACE=lo
+
+                export CYCLONEDDS_URI="<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"lo\" priority=\"default\" multicast=\"default\" /></Interfaces></General></Domain></CycloneDDS>"
+
+            fi
+
+            echo
+            echo "==== G1 SHELL ===="
+            echo "Mode      : $G1_MODE"
+            echo "Interface : $G1_INTERFACE"
+            echo "=================="
+            echo
+
+            exec bash --norc -i
+        '
+}
+
 case "${1:-}" in
     check)
         command_check
@@ -222,13 +344,12 @@ case "${1:-}" in
         command_sim
         ;;
 
-    shell)
-        echo "El comando 'shell' todavía no está implementado."
-        ;;
-
     -h|--help|help|"")
         usage
         ;;
+    shell)
+	command_shell
+	;;
 
     *)
         echo "Comando desconocido: $1"
