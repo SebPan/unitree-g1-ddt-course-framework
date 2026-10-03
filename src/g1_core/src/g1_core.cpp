@@ -26,7 +26,6 @@
 
 
 constexpr int G1_NUM_JOINTS = 23;
-constexpr double CONTROL_DT = 0.002;   // 500 Hz
 
 
 class G1Core : public rclcpp::Node
@@ -1218,6 +1217,9 @@ void joint_command_callback(
         active_transition_duration_ =
             msg->duration;
 
+        trajectory_start_time_ =
+            std::chrono::steady_clock::now();
+
         elapsed_time_ = 0.0;
         moving_ = true;
     }
@@ -1290,7 +1292,12 @@ void control_loop()
 
     if (moving_)
     {
-        elapsed_time_ += CONTROL_DT;
+        elapsed_time_ =
+            std::chrono::duration<double>(
+                std::chrono::steady_clock::now()
+                -
+                trajectory_start_time_
+            ).count();
 
 
         double ratio =
@@ -1501,6 +1508,9 @@ uint8_t mode_machine_ = 0;
 
 
 double elapsed_time_ = 0.0;
+
+std::chrono::steady_clock::time_point
+    trajectory_start_time_;
 
 
 double active_transition_duration_ = 2.0;
