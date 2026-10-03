@@ -28,3 +28,11 @@ source /opt/ros/humble/setup.bash
 source /opt/unitree_ros2/cyclonedds_ws/install/setup.bash
 if [ -f /workspace/install/setup.bash ]; then     source /workspace/install/setup.bash; fi
 exit
+cd /workspace
+source /opt/ros/humble/setup.bash
+source /opt/unitree_ros2/cyclonedds_ws/install/setup.bash
+colcon build   --packages-select g1_core   --symlink-install
+cd ~/Unitree_G1/g1_sim/workspace
+git add -A
+git commit -m "Remove control mode from g1_core"
+exit

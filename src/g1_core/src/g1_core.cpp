@@ -29,276 +29,147 @@ constexpr int G1_NUM_JOINTS = 23;
 constexpr double CONTROL_DT = 0.002;   // 500 Hz
 
 
-class G1LowLevelCore : public rclcpp::Node
+class G1Core : public rclcpp::Node
 {
 public:
 
-    G1LowLevelCore()
-        : Node("g1_lowlevel_core")
+    G1Core()
+        : Node("g1_core")
     {
-        // ----------------------------------------------------
-        // Modo SIM / REAL
-        // ----------------------------------------------------
+        // ====================================================
+        // Backend SIM / REAL
+        // ====================================================
 
         simulation_ =
             this->declare_parameter<bool>(
                 "simulation",
                 false
-                );
-
-        control_mode_ =
-            this->declare_parameter<std::string>(
-                "control_mode",
-                "low"
-                );
-
-        if (
-            control_mode_ != "high" &&
-            control_mode_ != "low"
-            )
-        {
-            throw std::runtime_error(
-                "control_mode debe ser 'high' o 'low'"
-                );
-        }
-
-        // ----------------------------------------------------
-        // Seguridad para robot REAL
-        // ----------------------------------------------------
-
-        real_enable_legs_ =
-            this->declare_parameter<bool>(
-                "real_enable_legs",
-                true
             );
 
-        real_enable_waist_ =
-            this->declare_parameter<bool>(
-                "real_enable_waist",
-                true
-            );
+        RCLCPP_INFO(
+            this->get_logger(),
+            "Backend: %s",
+            simulation_ ? "SIM" : "REAL"
+        );
 
-        real_enable_arms_ =
-            this->declare_parameter<bool>(
-                "real_enable_arms",
-                true
-            );
 
-        max_step_real_ =
-            this->declare_parameter<double>(
-                "max_step_real",
-                0.20
-            );
-
-        transition_duration_ =
-            this->declare_parameter<double>(
-                "transition_duration",
-                2.0
-            );
-
-        max_trajectory_velocity_real_ =
-            this->declare_parameter<double>(
-                "max_trajectory_velocity_real",
-                0.5
-                );
-
-        max_trajectory_acceleration_real_ =
-            this->declare_parameter<double>(
-                "max_trajectory_acceleration_real",
-                1.5
-                );
-
-        min_trajectory_duration_ =
-            this->declare_parameter<double>(
-                "min_trajectory_duration",
-                0.2
-                );
-
-        max_trajectory_duration_ =
-            this->declare_parameter<double>(
-                "max_trajectory_duration",
-                10.0
-                );
-
-        watchdog_timeout_ =
-            this->declare_parameter<double>(
-                "watchdog_timeout",
-                1.0
-                );
-
-        real_position_only_ =
-            this->declare_parameter<bool>(
-                "real_position_only",
-                true
-            );
+        // ====================================================
+        // Estado Unitree
+        // ====================================================
 
         lowstate_sub_ =
             this->create_subscription<unitree_hg::msg::LowState>(
                 "/lowstate",
                 10,
                 std::bind(
-                    &G1LowLevelCore::lowstate_callback,
+                    &G1Core::lowstate_callback,
                     this,
                     std::placeholders::_1
-                    )
-                );
-
-        RCLCPP_INFO(
-            this->get_logger(),
-            "Simulation: %s",
-            simulation_ ? "true" : "false"
+                )
             );
 
-        RCLCPP_INFO(
-            this->get_logger(),
-            "Control mode: %s",
-            control_mode_.c_str()
+
+        // ====================================================
+        // LowLevel - siempre disponible
+        // ====================================================
+
+        joint_command_sub_ =
+            this->create_subscription<g1_core::msg::JointCommand>(
+                "/g1/joint_command",
+                10,
+                std::bind(
+                    &G1Core::joint_command_callback,
+                    this,
+                    std::placeholders::_1
+                )
             );
 
-        if (simulation_ && control_mode_ == "high")
+        lowcmd_pub_ =
+            this->create_publisher<unitree_hg::msg::LowCmd>(
+                "/lowcmd",
+                10
+            );
+
+        control_timer_ =
+            this->create_wall_timer(
+                std::chrono::milliseconds(2),
+                std::bind(
+                    &G1Core::control_loop,
+                    this
+                )
+            );
+
+
+        // ====================================================
+        // HighLevel SIM bridge
+        //
+        // REAL utilizará posteriormente su backend Unitree.
+        // ====================================================
+
+        if (simulation_)
         {
-            RCLCPP_INFO(
-                this->get_logger(),
-                "Modo: SIMULATION"
-                );
-
-
-            // -----------------------------------------------
-            // Socket UDP hacia g1_ctrl
-            // -----------------------------------------------
-
             udp_socket_ =
                 ::socket(
                     AF_INET,
                     SOCK_DGRAM,
                     0
-                    );
-
+                );
 
             if (udp_socket_ < 0)
             {
                 throw std::runtime_error(
                     "No se pudo crear socket UDP"
-                    );
+                );
             }
 
-
             udp_address_.sin_family = AF_INET;
-
-            udp_address_.sin_port =
-                htons(15000);
-
+            udp_address_.sin_port = htons(15000);
 
             if (
                 ::inet_pton(
                     AF_INET,
                     "127.0.0.1",
                     &udp_address_.sin_addr
-                    ) != 1
-                )
+                ) != 1
+            )
             {
                 throw std::runtime_error(
                     "Direccion UDP invalida"
-                    );
+                );
             }
-
-
-            // -----------------------------------------------
-            // High-level Unitree
-            // -----------------------------------------------
 
             sport_request_sub_ =
                 this->create_subscription<
                     unitree_api::msg::Request
-                    >(
+                >(
                     "/api/sport/request",
                     10,
                     std::bind(
-                        &G1LowLevelCore::sport_request_callback,
+                        &G1Core::sport_request_callback,
                         this,
                         std::placeholders::_1
-                        )
-                    );
+                    )
+                );
+
             arm_sdk_sub_ =
-                this->create_subscription<unitree_hg::msg::LowCmd>(
+                this->create_subscription<
+                    unitree_hg::msg::LowCmd
+                >(
                     "/arm_sdk",
                     10,
                     std::bind(
-                        &G1LowLevelCore::arm_sdk_callback,
+                        &G1Core::arm_sdk_callback,
                         this,
                         std::placeholders::_1
-                        )
-                    );
-        }
-        else if (simulation_)
-        {
-            RCLCPP_INFO(
-                this->get_logger(),
-                "Modo: SIMULATION - LOW LEVEL"
-                );
-        }
-        else
-        {
-            RCLCPP_INFO(
-                this->get_logger(),
-                "Modo: REAL"
-                );
-        }
-        // ----------------------------------------------------
-        // Estado del robot
-        // --------------------------------------------------
-
-
-        // ----------------------------------------------------
-        // Comando desde Python
-        // ----------------------------------------------------
-
-        // ----------------------------------------------------
-        // LOW LEVEL
-        // ----------------------------------------------------
-
-        if (control_mode_ == "low")
-        {
-            // Comandos desde g1_low_level.py
-            joint_command_sub_ =
-                this->create_subscription<g1_core::msg::JointCommand>(
-                    "/g1/joint_command",
-                    10,
-                    std::bind(
-                        &G1LowLevelCore::joint_command_callback,
-                        this,
-                        std::placeholders::_1
-                        )
-                    );
-
-
-            // Salida directa Unitree
-            lowcmd_pub_ =
-                this->create_publisher<unitree_hg::msg::LowCmd>(
-                    "/lowcmd",
-                    10
-                    );
-
-
-            // Loop de control a 500 Hz
-            control_timer_ =
-                this->create_wall_timer(
-                    std::chrono::milliseconds(2),
-                    std::bind(
-                        &G1LowLevelCore::control_loop,
-                        this
-                        )
-                    );
-
-
-            RCLCPP_INFO(
-                this->get_logger(),
-                "LOW LEVEL habilitado"
+                    )
                 );
         }
 
 
-        // Valores iniciales de control
+        // ====================================================
+        // Valores iniciales LowLevel
+        // ====================================================
+
         command_velocity_.fill(0.0f);
         command_torque_.fill(0.0f);
 
@@ -308,15 +179,16 @@ public:
 
         RCLCPP_INFO(
             this->get_logger(),
-            "G1 LowLevel Core iniciado"
-            );
+            "G1 Core iniciado"
+        );
 
         RCLCPP_INFO(
             this->get_logger(),
             "Esperando /lowstate..."
-            );
+        );
     }
-    ~G1LowLevelCore() override
+
+    ~G1Core() override
     {
         if (udp_socket_ >= 0)
         {
@@ -1235,14 +1107,6 @@ bool validate_joint_request(
 void joint_command_callback(
     const g1_core::msg::JointCommand::SharedPtr msg)
 {
-    if (control_mode_ != "low"){
-        RCLCPP_ERROR(
-            this->get_logger(),
-            "JointCommand recibido fuera de LOW mode"
-            );
-
-        return;
-    }
     if (!state_received_)
     {
         RCLCPP_WARN(
@@ -1831,7 +1695,6 @@ int udp_socket_ = -1;
 
 sockaddr_in udp_address_{};
 
-std::string control_mode_ = "low";
 
 
 uint8_t mode_machine_ = 0;
@@ -1868,7 +1731,7 @@ int main(int argc, char **argv)
     rclcpp::init(argc, argv);
 
     auto node =
-        std::make_shared<G1LowLevelCore>();
+        std::make_shared<G1Core>();
 
     rclcpp::spin(node);
 
