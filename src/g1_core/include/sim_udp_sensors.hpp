@@ -94,6 +94,24 @@ public:
         }
 
 
+        // Reenviar el mismo estado al controlador HighLevel SIM.
+        forward_address_.sin_family = AF_INET;
+        forward_address_.sin_port = htons(15011);
+
+        if (
+            ::inet_pton(
+                AF_INET,
+                "127.0.0.1",
+                &forward_address_.sin_addr
+            ) != 1
+        )
+        {
+            throw std::runtime_error(
+                "Direccion UDP HighLevel SIM invalida"
+            );
+        }
+
+
         joint_pub_ =
             node_->create_publisher<sensor_msgs::msg::JointState>(
                 "/g1/joint_states",
@@ -203,6 +221,33 @@ private:
             state_callback_(newest);
         }
 
+        // Reutilizamos exactamente el mismo paquete recibido
+        // desde MuJoCo y lo enviamos a g1_ctrl.
+        const ssize_t forwarded =
+            ::sendto(
+                socket_,
+                &newest,
+                sizeof(newest),
+                0,
+                reinterpret_cast<sockaddr *>(
+                    &forward_address_
+                ),
+                sizeof(forward_address_)
+            );
+
+        if (
+            forwarded !=
+            static_cast<ssize_t>(sizeof(newest))
+        )
+        {
+            RCLCPP_WARN_THROTTLE(
+                node_->get_logger(),
+                *node_->get_clock(),
+                2000,
+                "No se pudo reenviar estado SIM a UDP 15011"
+            );
+        }
+
         publish_joint_state(newest);
         publish_imu(newest);
     }
@@ -269,6 +314,8 @@ private:
     rclcpp::Node *node_;
 
     int socket_ = -1;
+
+    sockaddr_in forward_address_{};
 
     bool first_packet_received_ = false;
 

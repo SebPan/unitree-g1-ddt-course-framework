@@ -167,10 +167,27 @@ public:
 
 
         // ====================================================
-        // HighLevel SIM bridge
+        // HighLevel
         //
-        // REAL utilizará posteriormente su backend Unitree.
+        // /api/sport/request se observa tanto en SIM como REAL.
+        // En SIM se traduce al backend UDP.
+        // En REAL el controlador Unitree recibe el Request
+        // directamente y g1_core solo gestiona el arbitraje
+        // frente a LowLevel.
         // ====================================================
+
+        sport_request_sub_ =
+            this->create_subscription<
+                unitree_api::msg::Request
+            >(
+                "/api/sport/request",
+                10,
+                std::bind(
+                    &G1Core::sport_request_callback,
+                    this,
+                    std::placeholders::_1
+                )
+            );
 
         if (simulation_)
         {
@@ -203,19 +220,6 @@ public:
                     "Direccion UDP invalida"
                 );
             }
-
-            sport_request_sub_ =
-                this->create_subscription<
-                    unitree_api::msg::Request
-                >(
-                    "/api/sport/request",
-                    10,
-                    std::bind(
-                        &G1Core::sport_request_callback,
-                        this,
-                        std::placeholders::_1
-                    )
-                );
 
             arm_sdk_sub_ =
                 this->create_subscription<
@@ -684,14 +688,28 @@ bool send_udp(const std::string &command)
 void sport_request_callback(
     const unitree_api::msg::Request::SharedPtr msg)
 {
-    if (!simulation_)
-    {
-        return;
-    }
-
-
     const int64_t api_id =
         msg->header.identity.api_id;
+
+
+    // Cualquier comando Sport toma prioridad sobre LowLevel.
+    low_level_active_ = false;
+    moving_ = false;
+
+
+    // En REAL no traducimos el comando.
+    // El Request original llega directamente al backend
+    // Sport del robot.
+    if (!simulation_)
+    {
+        RCLCPP_INFO(
+            this->get_logger(),
+            "SPORT REAL -> api_id=%ld",
+            static_cast<long>(api_id)
+        );
+
+        return;
+    }
 
 
     nlohmann::json parameter;

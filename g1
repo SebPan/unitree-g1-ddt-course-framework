@@ -48,6 +48,7 @@ release_motion_mode()
         (
             set +u
             source /opt/ros/humble/setup.bash
+            source /opt/unitree_ros2/cyclonedds_ws/install/setup.bash
             source "$UNITREE_ROS_SETUP"
 	    set -u
             export ROS_DOMAIN_ID=0
@@ -201,6 +202,7 @@ command_real() {
         bash -lc "
 	    mkdir -p '$CONTAINER_HOME'
             source /opt/ros/humble/setup.bash
+            source /opt/unitree_ros2/cyclonedds_ws/install/setup.bash
 
             if [ -f /workspace/install/setup.bash ]; then
                 source /workspace/install/setup.bash
@@ -275,6 +277,7 @@ command_sim() {
         bash -lc "
             mkdir -p '$CONTAINER_HOME'
             source /opt/ros/humble/setup.bash
+            source /opt/unitree_ros2/cyclonedds_ws/install/setup.bash
 
             if [ -f /workspace/install/setup.bash ]; then
                 source /workspace/install/setup.bash
@@ -316,6 +319,27 @@ command_sim() {
             fi
 
             echo 'g1_core iniciado.'
+
+            echo
+            echo 'Iniciando g1_ctrl SIM...'
+
+            setsid env \
+                LD_LIBRARY_PATH=/opt/unitree_robotics/lib:\$LD_LIBRARY_PATH \
+                stdbuf -oL -eL \
+                /workspace/controller/unitree_rl_lab_23/deploy/robots/g1_23dof/build/g1_ctrl \
+                </dev/null >/tmp/g1_ctrl.log 2>&1 &
+
+            sleep 1
+
+            if ! pgrep -f '/g1_23dof/build/g1_ctrl' >/dev/null; then
+                echo '[ERROR] g1_ctrl no pudo iniciar.'
+                echo '----- /tmp/g1_ctrl.log -----'
+                cat /tmp/g1_ctrl.log
+                exit 1
+            fi
+
+            echo 'g1_ctrl SIM iniciado.'
+
             echo 'Terminal lista.'
             exec bash --norc -i
         "
@@ -340,6 +364,7 @@ command_shell()
         "$CONTAINER_NAME" \
         bash --norc -c '
             source /opt/ros/humble/setup.bash
+            source /opt/unitree_ros2/cyclonedds_ws/install/setup.bash
             source /workspace/install/setup.bash
 
             export ROS_DOMAIN_ID=0
