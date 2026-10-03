@@ -73,12 +73,10 @@ class G1LowLevel(Node):
     def set_joints(self, joints, velocity=None, torque=None, kp=None, kd=None):
         names = []
         positions = []
-        velocities = []
         torques = []
         kps = []
         kds = []
 
-        velocity = velocity or {}
         torque = torque or {}
         kp = kp or {}
         kd = kd or {}
@@ -101,7 +99,8 @@ class G1LowLevel(Node):
         msg = JointCommand()
         msg.name = names
         msg.position = positions
-        msg.velocity = velocities
+        # dq(t) es generado por g1_core a partir de la trayectoria.
+        msg.velocity = []
         msg.torque = torques
         msg.kp = kps
         msg.kd = kds
@@ -114,7 +113,7 @@ class G1LowLevel(Node):
         return self.JOINTS.copy()
 
     def move_joint(self, joint_name, position, duration=2.0,
-                   velocity=None, torque=None, kp=None, kd=None):
+                   torque=None, kp=None, kd=None):
 
         if joint_name not in self.JOINTS:
             print(f'Joint not found: {joint_name}')
@@ -129,9 +128,8 @@ class G1LowLevel(Node):
         msg.name = [joint_name]
         msg.position = [float(position)]
 
-        msg.velocity = [
-            float('nan') if velocity is None else float(velocity)
-        ]
+        # dq(t) es generado por g1_core a partir de la trayectoria.
+        msg.velocity = []
 
         msg.torque = [
             float('nan') if torque is None else float(torque)
@@ -151,7 +149,7 @@ class G1LowLevel(Node):
 
         return True
 
-    def move_joints(self, joints, duration=2.0, velocity=None, torque=None, kp=None, kd=None):
+    def move_joints(self, joints, duration=2.0, torque=None, kp=None, kd=None):
 
         if duration <= 0:
             print('Duration must be greater than 0')
@@ -159,12 +157,10 @@ class G1LowLevel(Node):
 
         names = []
         positions = []
-        velocities = []
         torques = []
         kps = []
         kds = []
 
-        velocity = velocity or {}
         torque = torque or {}
         kp = kp or {}
         kd = kd or {}
@@ -178,11 +174,6 @@ class G1LowLevel(Node):
             names.append(name)
             positions.append(float(position))
 
-            velocities.append(
-                float(velocity[name])
-                if name in velocity
-                else float('nan')
-            )
 
             torques.append(
                 float(torque[name])
@@ -206,7 +197,8 @@ class G1LowLevel(Node):
 
         msg.name = names
         msg.position = positions
-        msg.velocity = velocities
+        # dq(t) es generado por g1_core a partir de la trayectoria.
+        msg.velocity = []
         msg.torque = torques
         msg.kp = kps
         msg.kd = kds

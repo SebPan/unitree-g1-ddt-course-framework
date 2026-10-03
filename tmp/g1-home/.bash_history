@@ -50,3 +50,9 @@ colcon build   --packages-select g1_core   --symlink-install
 exit
 colcon build   --packages-select g1_core   --symlink-install
 exit
+colcon build   --packages-select g1_interface g1_core   --symlink-install
+eexit
+cd ~/Unitree_G1/g1_sim/workspace
+git add -A
+git commit -m "Clean lowlevel Python API"
+exit
