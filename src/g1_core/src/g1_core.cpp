@@ -1213,17 +1213,27 @@ void joint_command_callback(
 
     if (msg->duration > 0.0)
     {
+        // move_joint / move_joints:
+        // trayectoria interpolada durante el tiempo solicitado.
         active_transition_duration_ =
             msg->duration;
+
+        elapsed_time_ = 0.0;
+        moving_ = true;
     }
     else
     {
-        active_transition_duration_ =
-            transition_duration_;
+        // set_joint / set_joints:
+        // referencia directa, sin trayectoria oculta.
+        command_position_ =
+            target_position_;
+
+        command_velocity_.fill(0.0f);
+
+        elapsed_time_ = 0.0;
+        moving_ = false;
     }
 
-    elapsed_time_ = 0.0;
-    moving_ = true;
     low_level_active_ = true;
 
     RCLCPP_INFO(
@@ -1492,7 +1502,6 @@ uint8_t mode_machine_ = 0;
 
 double elapsed_time_ = 0.0;
 
-double transition_duration_ = 2.0;
 
 double active_transition_duration_ = 2.0;
 
