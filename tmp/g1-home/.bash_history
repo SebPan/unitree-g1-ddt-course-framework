@@ -56,3 +56,18 @@ cd ~/Unitree_G1/g1_sim/workspace
 git add -A
 git commit -m "Clean lowlevel Python API"
 exit
+colcon build   --packages-select g1_core   --symlink-install
+source install/setup.bash 
+ros2 topic list | grep g1
+exit
+exit
+pgrep -af unitree_mujoco
+run-g1-sim
+echo $DISPLAY
+echo $HOME
+id
+ls -ld /opt/unitree_rl_mjlab
+ls -ld /opt/unitree_rl_mjlab/simulate
+ls -l /opt/unitree_rl_mjlab/simulate/config.yaml
+exit
+exit

@@ -14,6 +14,9 @@
 
 #include "rclcpp/rclcpp.hpp"
 
+#include "sensor_msgs/msg/joint_state.hpp"
+#include "sensor_msgs/msg/imu.hpp"
+
 #include "unitree_hg/msg/low_cmd.hpp"
 #include "unitree_hg/msg/low_state.hpp"
 #include "unitree_api/msg/request.hpp"
@@ -65,6 +68,23 @@ public:
                     this,
                     std::placeholders::_1
                 )
+            );
+
+
+        // ====================================================
+        // Estado normalizado para la API Python
+        // ====================================================
+
+        joint_state_pub_ =
+            this->create_publisher<sensor_msgs::msg::JointState>(
+                "/g1/joint_states",
+                10
+            );
+
+        imu_pub_ =
+            this->create_publisher<sensor_msgs::msg::Imu>(
+                "/g1/imu",
+                10
             );
 
 
@@ -792,7 +812,97 @@ void lowstate_callback(
 
         current_position_[i] =
             msg->motor_state[motor].q;
+
+        current_velocity_[i] =
+            msg->motor_state[motor].dq;
+
+        current_torque_[i] =
+            msg->motor_state[motor].tau_est;
     }
+
+
+    // ====================================================
+    // Publicar estado articular normalizado
+    // ====================================================
+
+    sensor_msgs::msg::JointState joint_state;
+
+    joint_state.header.stamp =
+        this->now();
+
+    joint_state.name.assign(
+        joint_names_.begin(),
+        joint_names_.end()
+    );
+
+    joint_state.position.resize(G1_NUM_JOINTS);
+    joint_state.velocity.resize(G1_NUM_JOINTS);
+    joint_state.effort.resize(G1_NUM_JOINTS);
+
+    for (int i = 0; i < G1_NUM_JOINTS; i++)
+    {
+        joint_state.position[i] =
+            current_position_[i];
+
+        joint_state.velocity[i] =
+            current_velocity_[i];
+
+        joint_state.effort[i] =
+            current_torque_[i];
+    }
+
+    joint_state_pub_->publish(joint_state);
+
+
+    // ====================================================
+    // Publicar IMU normalizada
+    //
+    // Unitree quaternion:
+    // [w, x, y, z]
+    //
+    // sensor_msgs/Imu:
+    // x, y, z, w
+    // ====================================================
+
+    sensor_msgs::msg::Imu imu;
+
+    imu.header.stamp =
+        joint_state.header.stamp;
+
+    imu.orientation.w =
+        msg->imu_state.quaternion[0];
+
+    imu.orientation.x =
+        msg->imu_state.quaternion[1];
+
+    imu.orientation.y =
+        msg->imu_state.quaternion[2];
+
+    imu.orientation.z =
+        msg->imu_state.quaternion[3];
+
+
+    imu.angular_velocity.x =
+        msg->imu_state.gyroscope[0];
+
+    imu.angular_velocity.y =
+        msg->imu_state.gyroscope[1];
+
+    imu.angular_velocity.z =
+        msg->imu_state.gyroscope[2];
+
+
+    imu.linear_acceleration.x =
+        msg->imu_state.accelerometer[0];
+
+    imu.linear_acceleration.y =
+        msg->imu_state.accelerometer[1];
+
+    imu.linear_acceleration.z =
+        msg->imu_state.accelerometer[2];
+
+
+    imu_pub_->publish(imu);
 
 
     if (!state_received_)
@@ -1453,6 +1563,20 @@ rclcpp::Subscription<
 // ========================================================
 // Estado de control
 // ========================================================
+
+rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr
+    joint_state_pub_;
+
+rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr
+    imu_pub_;
+
+
+std::array<float, G1_NUM_JOINTS>
+    current_velocity_{};
+
+std::array<float, G1_NUM_JOINTS>
+    current_torque_{};
+
 
 std::array<float, G1_NUM_JOINTS>
     current_position_{};
