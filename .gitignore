@@ -24,3 +24,4 @@ Thumbs.db
 # Runtime/container files
 tmp/g1-home/
 mujoco
+.venv_unitree/

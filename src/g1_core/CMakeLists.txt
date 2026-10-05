@@ -28,6 +28,10 @@ find_package(unitree_hg REQUIRED)
 
 find_package(geometry_msgs REQUIRED)
 
+find_package(std_msgs REQUIRED)
+
+find_package(trajectory_msgs REQUIRED)
+
 find_package(std_srvs REQUIRED)
 
 find_package(rosidl_default_generators REQUIRED)
@@ -123,5 +127,17 @@ install(
     lib/${PROJECT_NAME}
 )
 
+# ============================================================
+# High Level Core - Python
+# ============================================================
+
+install(
+  PROGRAMS
+    scripts/g1_high_core.py
+  DESTINATION
+    lib/${PROJECT_NAME}
+  RENAME
+    g1_high_core
+)
 
 ament_package()
