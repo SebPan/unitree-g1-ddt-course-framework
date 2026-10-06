@@ -24,7 +24,7 @@ chmod +x ./g1
 
 echo
 echo "=== Construyendo imagen Docker ==="
-./g1 image
+docker build -t g1-course-sim:dev docker_image
 
 echo
 echo "=== Compilando controlador HighLevel SIM ==="
