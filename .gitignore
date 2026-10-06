@@ -3,25 +3,53 @@ build/
 install/
 log/
 
-# Runtime / temporary
-head_camera.png
-
-# External repositories / dependencies
-controller/
+build_docker/
+install_docker/
+log_docker/
 
 # Python
 __pycache__/
 *.pyc
+*.pyo
+
+# Runtime
+tmp/g1-home/
+tmp/*.log
+*.log
+core
+core.*
 
 # Editors
-.vscode/
 .idea/
+.vscode/
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Runtime/container files
-tmp/g1-home/
+# Backups creados durante desarrollo
+*.bak
+*.backup
+*.before_*
+*~
+.vs/
+.vs/
+
+# Development backups
+*.old.py
+*.bak_*
+*.backup_*
+*.backup_before_*
+
+# Local accidental/runtime files
+timeout
 mujoco
-.venv_unitree/
+
+# Unitree RL controller - generated build
+controller/unitree_rl_lab_23/deploy/robots/*/build/
+
+# Demo/media files not required to run the course
+controller/unitree_rl_lab_23/assets/*.mp4
+
+# Download archive; extracted ONNX Runtime is kept
+controller/unitree_rl_lab_23/deploy/thirdparty/*.tgz

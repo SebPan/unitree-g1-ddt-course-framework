@@ -1,0 +1,81 @@
+FSM:
+  _: # enabled fsms
+    Passive:
+      id: 1
+    FixStand:
+      id: 2
+    Velocity:
+      id: 3
+      type: RLBase
+    # 新增：23DOF 跳舞模仿任务
+    Mimic_Dance_102:
+      id: 101
+      type: Mimic
+
+  Passive:
+    transitions: 
+      FixStand: LT + up.on_pressed
+    mode: [
+      1,1,1,1,1,1,
+      1,1,1,1,1,1,
+      1,1,1,
+      1,1,1,1,1,1,1,
+      1,1,1,1,1,1,1,
+    ]
+    kd: [
+      3,3,3,3,3,3,
+      3,3,3,3,3,3,
+      3,3,3,
+      3,3,3,3,3,3,3,  
+      3,3,3,3,3,3,3,  
+    ]
+
+  FixStand:
+    transitions: 
+      Passive: LT + B.on_pressed
+      Velocity: RB + X.on_pressed
+      Mimic_Dance_102: RB + Y.on_pressed
+    kp: [
+      100., 100., 100., 150., 40., 40.,
+      100., 100., 100., 150., 40., 40.,
+      200,200,200,
+      40,40,40,40,40,40,40,
+      40,40,40,40,40,40,40,
+    ]
+    kd: [
+      2,2,2,4,2,2,
+      2,2,2,4,2,2,
+      5,5,5,
+      10,10,10,10,10,10,10,
+      10,10,10,10,10,10,10,
+    ]
+    ts: [0, 3]
+    qs: [
+      [],
+      [ -0.1, 0,0,0.3,-0.2,0,
+        -0.1, 0,0,0.3,-0.2,0,
+        0,0,0,
+        0, 0.25,0,0.97,0.15, 0,0,
+        0, -0.25,0,0.97,-0.15, 0,0
+      ]
+    ]
+
+  Velocity:
+    transitions: 
+      Passive: LT + B.on_pressed
+      # 新增：手柄切换跳舞（LT + 按下方向键↓）
+      Mimic_Dance_102: LT + down.on_pressed
+    policy_dir: config/policy/unitree_g1_23dof_velocity/
+
+  # 核心新增：23DOF 跳舞任务完整配置（和29DOF对齐）
+  Mimic_Dance_102:
+    transitions: 
+      Passive: LT + B.on_pressed       # 长按LT+B 退回被动模式
+      Velocity: RB + X.on_pressed      # 按下RB+X 切回行走模式
+    fps: 60                            # 动作帧率
+    # 动作文件路径（适配23DOF部署目录）
+    motion_file: config/policy/mimic/dance_102/params/G1_Take_102.bvh_60hz.csv
+    # 训练好的跳舞策略路径
+    policy_dir: config/policy/mimic/dance_102/
+    time_start: 0.0               # 动作起始时间
+    time_end: 28.0                     # 动作结束时间

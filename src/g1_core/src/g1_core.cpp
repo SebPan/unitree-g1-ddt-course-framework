@@ -692,24 +692,18 @@ void sport_request_callback(
         msg->header.identity.api_id;
 
 
-    // Cualquier comando Sport toma prioridad sobre LowLevel.
-    low_level_active_ = false;
-    moving_ = false;
-
-
-    // En REAL no traducimos el comando.
-    // El Request original llega directamente al backend
-    // Sport del robot.
+    // En REAL LOW ignoramos completamente Sport API.
+    // El launcher ya decide si estamos trabajando en LOW o HIGH.
+    // Un Request Sport no debe desactivar LowLevel accidentalmente.
     if (!simulation_)
     {
-        RCLCPP_INFO(
-            this->get_logger(),
-            "SPORT REAL -> api_id=%ld",
-            static_cast<long>(api_id)
-        );
-
         return;
     }
+
+
+    // En SIM, cualquier comando Sport toma prioridad sobre LowLevel.
+    low_level_active_ = false;
+    moving_ = false;
 
 
     nlohmann::json parameter;
@@ -1150,7 +1144,6 @@ void joint_command_callback(
 
     const size_t lowcmd_publishers =
         this->count_publishers("/lowcmd");
-
 
     if (simulation_ && lowcmd_publishers > 1)
     {

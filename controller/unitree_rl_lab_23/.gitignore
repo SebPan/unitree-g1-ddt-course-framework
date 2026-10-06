@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# MuJoCo
+*.tar.gz
+
+# Training outputs / logs
+outputs/
+*.log
+
+# IDE
+.vscode/
+.cache/
+.idea/
+
+# CMake / C++ build
+build/
+*.o
+*.a
+*.so
+*.so.*
+*.out
+compile_commands.json
+.ninja_*
+CMakeCache.txt
+cmake_install.cmake
+CMakeFiles/
+
+# Compiled binaries
+g1_ctrl
+mat2npz
+npz2mat
+npy2mat
+
+# ONNX Runtime (users should download their own)
+deploy/thirdparty/onnxruntime-linux-x64-*/
+
+# Backup files
+*.bak
+*.7z
+
+# OS
+.DS_Store
+Thumbs.db
+deploy/thirdparty/onnxruntime-linux-x64-1.22.0.tgz

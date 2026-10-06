@@ -3,13 +3,23 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 IMAGE="g1-course-sim:dev"
 CONTAINER_NAME="g1-course"
+
 HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
+
 CONTAINER_HOME="/tmp/g1-home"
+
 RELEASE_MODE_BIN="$HOME/unitree_ros2/example/install/unitree_ros2_example/lib/unitree_ros2_example/g1_release_mode"
+
 UNITREE_ROS_SETUP="$HOME/unitree_ros2/example/install/setup.bash"
+
+UNITREE_CYCLONEDDS_SETUP="$HOME/unitree_ros2/cyclonedds_ws/install/setup.bash"
+
+UNITREE_VENV="/opt/g1-unitree-venv"
+
 
 ok() {
     echo "[OK] $1"
@@ -23,8 +33,111 @@ fail() {
     echo "[FAIL] $1"
 }
 
-release_motion_mode()
-{
+
+usage() {
+
+    echo "Unitree G1 Course"
+    echo
+    echo "Uso:"
+    echo
+    echo "  ./g1 check"
+    echo
+    echo "  ./g1 sim"
+    echo
+    echo "  ./g1 build"
+    echo "  ./g1 real --mode high [--interface eth2]"
+    echo "  ./g1 real --mode low  [--interface eth2]"
+    echo "  ./g1 shell"
+}
+
+
+# ============================================================
+# DETECCION DE RED
+# ============================================================
+
+find_g1_interface() {
+
+    ip -o -4 addr show |
+        awk '$4 ~ /^192\.168\.123\./ {print $2; exit}'
+}
+
+
+find_g1_ip() {
+
+    ip -o -4 addr show |
+        awk '$4 ~ /^192\.168\.123\./ {print $4; exit}' |
+        cut -d/ -f1
+}
+
+
+# ============================================================
+# CHECKS
+# ============================================================
+
+check_docker() {
+
+    if ! command -v docker >/dev/null 2>&1; then
+
+        fail "Docker no encontrado"
+        return 1
+    fi
+
+    ok "Docker encontrado: $(command -v docker)"
+
+    if ! docker info >/dev/null 2>&1; then
+
+        fail "Docker Engine no responde"
+        return 1
+    fi
+
+    ok "Docker Engine activo"
+}
+
+
+check_g1_network() {
+
+    local interface
+    local ip
+
+    interface="$(find_g1_interface)"
+    ip="$(find_g1_ip)"
+
+    if [ -z "$interface" ]; then
+
+        fail "No se encontro una interfaz 192.168.123.x"
+        return 1
+    fi
+
+    ok "Interfaz G1: $interface ($ip)"
+
+    if ping -c 1 -W 1 192.168.123.161 >/dev/null 2>&1; then
+
+        ok "G1 responde en 192.168.123.161"
+
+    else
+
+        warn "G1 no responde en 192.168.123.161"
+    fi
+
+    if ping -c 1 -W 1 192.168.123.164 >/dev/null 2>&1; then
+
+        ok "G1 responde en 192.168.123.164"
+
+    else
+
+        warn "G1 no responde en 192.168.123.164"
+    fi
+}
+
+
+# ============================================================
+# RELEASE MOTION MODE
+#
+# SOLO SE USA EN REAL LOW
+# ============================================================
+
+release_motion_mode() {
+
     local interface="$1"
     local output
     local rc
@@ -33,30 +146,47 @@ release_motion_mode()
     echo "Comprobando MotionSwitcher del G1..."
 
     if [ ! -x "$RELEASE_MODE_BIN" ]; then
+
         fail "No se encontro g1_release_mode:"
         echo "  $RELEASE_MODE_BIN"
+
         return 1
     fi
 
     if [ ! -f "$UNITREE_ROS_SETUP" ]; then
-        fail "No se encontro el entorno Unitree ROS 2:"
+
+        fail "No se encontro Unitree ROS:"
         echo "  $UNITREE_ROS_SETUP"
+
+        return 1
+    fi
+
+    if [ ! -f "$UNITREE_CYCLONEDDS_SETUP" ]; then
+
+        fail "No se encontro CycloneDDS de Unitree:"
+        echo "  $UNITREE_CYCLONEDDS_SETUP"
+
         return 1
     fi
 
     output="$(
         (
             set +u
+
             source /opt/ros/humble/setup.bash
-            source /opt/unitree_ros2/cyclonedds_ws/install/setup.bash
+            source "$UNITREE_CYCLONEDDS_SETUP"
             source "$UNITREE_ROS_SETUP"
-	    set -u
+
+            set -u
+
             export ROS_DOMAIN_ID=0
+
             export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 
             export CYCLONEDDS_URI="<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"$interface\" priority=\"default\" multicast=\"default\" /></Interfaces></General></Domain></CycloneDDS>"
 
             timeout 15s "$RELEASE_MODE_BIN"
+
         ) 2>&1
     )"
 
@@ -65,186 +195,46 @@ release_motion_mode()
     echo "$output"
 
     if [ "$rc" -eq 124 ]; then
+
         fail "Timeout esperando MotionSwitcher."
         return 1
     fi
 
-    if echo "$output" | grep -q \
-        "Motion control liberado correctamente"
+    if echo "$output" |
+        grep -q "Motion control liberado correctamente"
     then
+
         ok "Motion control del G1 liberado."
+
         return 0
     fi
 
     fail "No se pudo confirmar que MotionSwitcher quedo libre."
+
     return 1
 }
 
-usage() {
-    echo "Unitree G1 Course"
-    echo
-    echo "Uso:"
-    echo "  ./g1 check"
-    echo "  ./g1 real"
-    echo "  ./g1 sim"
-    echo "  ./g1 shell"
-}
 
-find_g1_interface() {
-    ip -o -4 addr show |
-        awk '$4 ~ /^192\.168\.123\./ {print $2; exit}'
-}
-
-find_g1_ip() {
-    ip -o -4 addr show |
-        awk '$4 ~ /^192\.168\.123\./ {print $4; exit}' |
-        cut -d/ -f1
-}
-
-check_docker() {
-    if ! command -v docker >/dev/null 2>&1; then
-        fail "Docker no encontrado"
-        return 1
-    fi
-
-    ok "Docker encontrado: $(command -v docker)"
-
-    if ! docker info >/dev/null 2>&1; then
-        fail "Docker Engine no responde"
-        return 1
-    fi
-
-    ok "Docker Engine activo"
-}
-
-check_g1_network() {
-    local interface
-    local ip
-
-    interface="$(find_g1_interface)"
-    ip="$(find_g1_ip)"
-
-    if [ -z "$interface" ]; then
-        fail "No se encontró una interfaz 192.168.123.x"
-        return 1
-    fi
-
-    ok "Interfaz G1: $interface ($ip)"
-
-    if ping -c 1 -W 1 192.168.123.161 >/dev/null 2>&1; then
-        ok "G1 responde en 192.168.123.161"
-    else
-        warn "G1 no responde en 192.168.123.161"
-    fi
-
-    if ping -c 1 -W 1 192.168.123.164 >/dev/null 2>&1; then
-        ok "G1 responde en 192.168.123.164"
-    else
-        warn "G1 no responde en 192.168.123.164"
-    fi
-}
+# ============================================================
+# CHECK
+# ============================================================
 
 command_check() {
+
     echo "=== Unitree G1 Course Check ==="
     echo
 
     check_docker || exit 1
+
     check_g1_network
 
     echo
     echo "Check terminado."
 }
 
-command_real() {
-    echo "=== Unitree G1 REAL ==="
-    echo
+command_build() {
 
-    check_docker || exit 1
-
-    local interface
-    interface="$(find_g1_interface)"
-
-    if [ -z "$interface" ]; then
-        fail "No se encontró la red 192.168.123.x"
-        exit 1
-    fi
-
-    ok "Interfaz real: $interface"
-
-    if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-        fail "No existe la imagen $IMAGE"
-        exit 1
-    fi
-
-    ok "Imagen encontrada: $IMAGE"
-
-    echo
-    echo "Iniciando entorno REAL..."
-    echo "Workspace: $SCRIPT_DIR"
-    echo
-
-    if ! release_motion_mode "$interface"; then
-    fail "No se iniciara REAL mientras MotionSwitcher siga activo."
-    exit 1
-    fi
-
-    docker run --rm -it \
-	--user "$HOST_UID:$HOST_GID" \
-	-e HOME="$CONTAINER_HOME" \
-        --name "$CONTAINER_NAME" \
-        --network host \
-        --privileged \
-        -e G1_MODE=real \
-        -e G1_INTERFACE="$interface" \
-        -v "$SCRIPT_DIR:/workspace" \
-        --workdir /workspace \
-        "$IMAGE" \
-        bash -lc "
-	    mkdir -p '$CONTAINER_HOME'
-            source /opt/ros/humble/setup.bash
-            source /opt/unitree_ros2/cyclonedds_ws/install/setup.bash
-
-            if [ -f /workspace/install/setup.bash ]; then
-                source /workspace/install/setup.bash
-            fi
-
-            export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-            export CYCLONEDDS_URI='<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"$interface\" priority=\"default\" multicast=\"default\" /></Interfaces></General></Domain></CycloneDDS>'
-
-            echo
-            echo '========================================='
-            echo ' Unitree G1 - REAL'
-            echo '========================================='
-            echo 'Interface: $interface'
-            echo 'Mode:      REAL'
-            echo
-            echo 'ROS 2 y CycloneDDS configurados.'
-            echo
-            echo 'Iniciando g1_core REAL...'
-
-            ros2 run g1_core g1_core \
-                --ros-args \
-                -p simulation:=false \
-                >/tmp/g1_core.log 2>&1 &
-
-            sleep 2
-
-            if ! pgrep -f 'g1_core' >/dev/null; then
-                echo
-                echo '[ERROR] g1_core REAL no pudo iniciar.'
-                echo '----- /tmp/g1_core.log -----'
-                cat /tmp/g1_core.log
-                exit 1
-            fi
-
-            echo 'g1_core REAL iniciado.'
-            echo 'Terminal lista.'
-            exec bash --norc -i
-        "
-}
-
-command_sim() {
-    echo "=== Unitree G1 SIM ==="
+    echo "=== Unitree G1 BUILD ==="
     echo
 
     check_docker || exit 1
@@ -254,53 +244,505 @@ command_sim() {
         exit 1
     fi
 
-    ok "Imagen encontrada: $IMAGE"
-
-    echo
-    echo "Iniciando entorno SIM..."
-    echo "Workspace: $SCRIPT_DIR"
-    echo
-
-    docker run --rm -it \
-	--user "$HOST_UID:$HOST_GID" \
-	-e HOME="$CONTAINER_HOME" \
-	--name "$CONTAINER_NAME" \
+    docker run --rm \
+        --user "$HOST_UID:$HOST_GID" \
+        -e HOME="$CONTAINER_HOME" \
         --network host \
         --privileged \
-        -e G1_MODE=sim \
-        -e G1_INTERFACE=lo \
-	-e DISPLAY="$DISPLAY" \
-	-v /tmp/.X11-unix:/tmp/.X11-unix:rw \
         -v "$SCRIPT_DIR:/workspace" \
         --workdir /workspace \
         "$IMAGE" \
         bash -lc "
             mkdir -p '$CONTAINER_HOME'
+
             source /opt/ros/humble/setup.bash
             source /opt/unitree_ros2/cyclonedds_ws/install/setup.bash
 
-            if [ -f /workspace/install/setup.bash ]; then
-                source /workspace/install/setup.bash
+            echo
+            echo 'Compilando workspace ROS dentro de Docker...'
+            echo
+
+            colcon \
+                --log-base /workspace/log_docker \
+                build \
+                --build-base /workspace/build_docker \
+                --install-base /workspace/install_docker \
+                --packages-select \
+                    g1_core \
+                    g1_interface \
+                --symlink-install
+
+	    "
+
+    if [ "$?" -ne 0 ]; then
+        fail "Build fallido."
+        exit 1
+    fi
+
+    echo
+    ok "Workspace ROS compilado para Docker."
+}
+
+# ============================================================
+# REAL
+# ============================================================
+
+command_real() {
+
+    local mode=""
+    local interface=""
+
+    # --------------------------------------------------------
+    # ARGUMENTOS
+    # --------------------------------------------------------
+
+    while [ "$#" -gt 0 ]; do
+
+        case "$1" in
+
+            --mode)
+
+                if [ "$#" -lt 2 ]; then
+
+                    fail "Falta valor para --mode"
+                    exit 1
+                fi
+
+                mode="$2"
+
+                shift 2
+                ;;
+
+            --interface)
+
+                if [ "$#" -lt 2 ]; then
+
+                    fail "Falta valor para --interface"
+                    exit 1
+                fi
+
+                interface="$2"
+
+                shift 2
+                ;;
+
+            *)
+
+                fail "Argumento REAL desconocido: $1"
+
+                usage
+
+                exit 1
+                ;;
+        esac
+    done
+
+
+    # --------------------------------------------------------
+    # VALIDAR MODO
+    # --------------------------------------------------------
+
+    case "$mode" in
+
+        high|low)
+            ;;
+
+        *)
+
+            fail "Debes indicar --mode high o --mode low"
+
+            echo
+
+            usage
+
+            exit 1
+            ;;
+    esac
+
+
+    echo "=== Unitree G1 REAL / ${mode^^} ==="
+    echo
+
+
+    # --------------------------------------------------------
+    # DOCKER
+    # --------------------------------------------------------
+
+    check_docker || exit 1
+
+
+    # --------------------------------------------------------
+    # INTERFAZ
+    # --------------------------------------------------------
+
+    if [ -z "$interface" ]; then
+
+        interface="$(find_g1_interface)"
+    fi
+
+    if [ -z "$interface" ]; then
+
+        fail "No se encontro la red 192.168.123.x"
+
+        exit 1
+    fi
+
+    if ! ip link show "$interface" >/dev/null 2>&1; then
+
+        fail "La interfaz $interface no existe."
+
+        exit 1
+    fi
+
+    if ! ip -o -4 addr show dev "$interface" |
+        grep -q '192\.168\.123\.'
+    then
+
+        fail "$interface no tiene una IP 192.168.123.x"
+
+        exit 1
+    fi
+
+    ok "Interfaz real: $interface"
+
+
+    # --------------------------------------------------------
+    # IMAGE
+    # --------------------------------------------------------
+
+    if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+
+        fail "No existe la imagen $IMAGE"
+
+        exit 1
+    fi
+
+    ok "Imagen encontrada: $IMAGE"
+
+
+    # --------------------------------------------------------
+    # HIGH / LOW PREPARATION
+    # --------------------------------------------------------
+
+    if [ "$mode" = "high" ]; then
+
+        ok "HighLevel: MotionSwitcher se conserva activo."
+
+    else
+
+        if ! release_motion_mode "$interface"; then
+	    fail "No se iniciara REAL LOW mientras Motion Switcher siga activo."
+	    exit 1
+	fi
+    fi
+
+
+    echo
+    echo "Iniciando entorno REAL..."
+    echo "Workspace: $SCRIPT_DIR"
+    echo "Mode:      $mode"
+    echo
+
+
+    # ========================================================
+    # CONTAINER
+    # ========================================================
+
+    docker run --rm -it \
+        --user "$HOST_UID:$HOST_GID" \
+        -e HOME="$CONTAINER_HOME" \
+        --name "$CONTAINER_NAME" \
+        --network host \
+        --privileged \
+        -e G1_MODE=real \
+        -e G1_REAL_MODE="$mode" \
+        -e G1_INTERFACE="$interface" \
+        -v "$SCRIPT_DIR:/workspace" \
+        --workdir /workspace \
+        "$IMAGE" \
+        bash -lc "
+
+            mkdir -p '$CONTAINER_HOME'
+
+
+            # =================================================
+            # ROS
+            # =================================================
+
+            source /opt/ros/humble/setup.bash
+
+
+            # Mensajes/stack ROS de Unitree disponibles
+            # tanto para LOW como para la interfaz Python HIGH.
+            if [ -f /opt/unitree_ros2/cyclonedds_ws/install/setup.bash ]; then
+
+                source /opt/unitree_ros2/cyclonedds_ws/install/setup.bash
             fi
 
+
+            if [ -f /workspace/install_docker/setup.bash ]; then
+
+                source /workspace/install_docker/setup.bash
+            fi
+
+
+            export ROS_DOMAIN_ID=0
+
             export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
+            export CYCLONEDDS_URI='<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"$interface\" priority=\"default\" multicast=\"default\" /></Interfaces></General></Domain></CycloneDDS>'
+
+
+            echo
+            echo '========================================='
+            echo ' Unitree G1 - REAL / ${mode^^}'
+            echo '========================================='
+            echo 'Interface: $interface'
+            echo 'Mode:      $mode'
+            echo
+
+
+            # =================================================
+            # HIGHLEVEL
+            # =================================================
+
+            if [ '$mode' = 'high' ]; then
+
+                # ---------------------------------------------
+                # SDK2 Python
+                # ---------------------------------------------
+
+                if [ ! -f /opt/g1-unitree-venv/bin/activate ]; then
+
+                    echo '[ERROR] No existe el entorno SDK2 Python:'
+                    echo '/opt/g1-unitree-venv'
+
+                    exit 1
+                fi
+
+                source /opt/g1-unitree-venv/bin/activate
+
+                export G1_INTERFACE='$interface'
+
+                # Durante desarrollo usamos directamente
+                # la interfaz Python del workspace.
+                export PYTHONPATH=/workspace/src/g1_interface:\$PYTHONPATH
+
+
+                # ---------------------------------------------
+                # SDK2 / CRC CHECK
+                # ---------------------------------------------
+
+                echo 'Verificando SDK2 Python + CRC...'
+
+                if ! python3 -c 'from unitree_sdk2py.utils.crc import CRC; CRC()' \
+                    >/tmp/g1_crc_check.log 2>&1
+                then
+
+                    echo
+                    echo '[ERROR] SDK2 Python no puede cargar CRC.'
+                    echo '----- /tmp/g1_crc_check.log -----'
+
+                    cat /tmp/g1_crc_check.log
+
+                    echo
+                    echo 'Esperado:'
+                    echo '/opt/g1-unitree-venv/lib/python3.10/site-packages/unitree_sdk2py/utils/lib/crc_amd64.so'
+
+                    exit 1
+                fi
+
+                echo 'SDK2 Python + CRC OK.'
+
+
+                # ---------------------------------------------
+                # HIGH CORE
+                # ---------------------------------------------
+
+                echo
+                echo 'Iniciando g1_high_core...'
+
+                setsid env PYTHONUNBUFFERED=1 \
+                    ros2 run g1_core g1_high_core \
+                    </dev/null >/tmp/g1_high_core.log 2>&1 &
+
+                core_pid=\$!
+
+                sleep 2
+
+                if ! kill -0 \$core_pid >/dev/null 2>&1; then
+
+                    echo
+                    echo '[ERROR] g1_high_core no pudo iniciar.'
+                    echo '----- /tmp/g1_high_core.log -----'
+
+                    cat /tmp/g1_high_core.log
+
+                    exit 1
+                fi
+
+                echo 'g1_high_core iniciado.'
+                echo 'Backend HIGH REAL listo.'
+
+
+            # =================================================
+            # LOWLEVEL
+            # =================================================
+
+            else
+
+                echo 'Iniciando g1_core REAL LOW...'
+
+                ros2 run g1_core g1_core \
+                    --ros-args \
+                    -p simulation:=false \
+                    >/tmp/g1_core.log 2>&1 &
+
+                core_pid=\$!
+
+                sleep 2
+
+                if ! kill -0 \$core_pid >/dev/null 2>&1; then
+
+                    echo
+                    echo '[ERROR] g1_core REAL LOW no pudo iniciar.'
+                    echo '----- /tmp/g1_core.log -----'
+
+                    cat /tmp/g1_core.log
+
+                    exit 1
+                fi
+
+                echo 'g1_core REAL LOW iniciado.'
+            fi
+
+
+            echo 'Terminal lista.'
+
+            exec bash --norc -i
+        "
+}
+
+
+# ============================================================
+# SIM
+# ============================================================
+
+command_sim() {
+
+    local mode="high"
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+
+            --mode)
+                if [ $# -lt 2 ]; then
+                    fail "Falta valor para --mode"
+                    return 1
+                fi
+
+                mode="$2"
+                shift 2
+                ;;
+
+            *)
+                fail "Argumento SIM desconocido: $1"
+                return 1
+                ;;
+        esac
+    done
+
+
+    if [ "$mode" != "low" ] && [ "$mode" != "high" ]; then
+        fail "Modo SIM invalido: $mode"
+        echo "Usa:"
+        echo "  ./g1 sim --mode low"
+        echo "  ./g1 sim --mode high"
+        return 1
+    fi
+
+
+    echo "=== Unitree G1 SIM / ${mode^^} ==="
+    echo
+
+    check_docker || return 1
+
+
+    if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+        fail "No existe la imagen $IMAGE"
+        return 1
+    fi
+
+    ok "Imagen encontrada: $IMAGE"
+
+
+    echo
+    echo "Iniciando entorno SIM..."
+    echo "Workspace: $SCRIPT_DIR"
+    echo "Mode:      $mode"
+    echo
+
+
+    docker run --rm -it \
+        --user "$HOST_UID:$HOST_GID" \
+        -e HOME="$CONTAINER_HOME" \
+        --name "$CONTAINER_NAME" \
+        --network host \
+        --privileged \
+        -e G1_MODE=sim \
+        -e G1_RUN_MODE="$mode" \
+        -e G1_INTERFACE=lo \
+        -e DISPLAY="${DISPLAY:-}" \
+        -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
+        -v "$SCRIPT_DIR:/workspace" \
+        --workdir /workspace \
+        "$IMAGE" \
+        bash -lc "
+
+            mkdir -p '$CONTAINER_HOME'
+
+            source /opt/ros/humble/setup.bash
+            source /opt/unitree_ros2/cyclonedds_ws/install/setup.bash
+
+
+            if [ -f /workspace/install_docker/setup.bash ]; then
+                source /workspace/install_docker/setup.bash
+            fi
+
+
+            export ROS_DOMAIN_ID=0
+            export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
             export CYCLONEDDS_URI='<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"lo\" priority=\"default\" multicast=\"default\" /></Interfaces></General></Domain></CycloneDDS>'
+
 
             echo
             echo '========================================='
             echo ' Unitree G1 - SIM'
             echo '========================================='
             echo 'Interface: lo'
-            echo 'Mode:      SIM'
+            echo \"Mode:      \$G1_RUN_MODE\"
             echo
-            echo 'ROS 2 y CycloneDDS configurados.'
-            echo 'Iniciando MuJoCo'
-	    echo
 
-            setsid run-g1-sim </dev/null >/tmp/g1_mujoco.log 2>&1 &
+
+            # =================================================
+            # MUJOCO
+            # =================================================
+
+            echo 'Iniciando MuJoCo...'
+
+            setsid run-g1-sim \
+                </dev/null >/tmp/g1_mujoco.log 2>&1 &
+
             sleep 2
 
-            echo 'Mujoco iniciado.'
+            echo 'MuJoCo iniciado.'
+
+
+            # =================================================
+            # G1 CORE
+            # =================================================
+
             echo 'Iniciando g1_core SIM...'
 
             setsid ros2 run g1_core g1_core \
@@ -308,67 +750,137 @@ command_sim() {
                 -p simulation:=true \
                 </dev/null >/tmp/g1_core.log 2>&1 &
 
+            core_pid=\$!
+
             sleep 2
 
-            if ! pgrep -f 'g1_core' >/dev/null; then
+
+            if ! kill -0 \$core_pid >/dev/null 2>&1; then
+
                 echo
-                echo '[ERROR] g1_core no pudo iniciar.'
+                echo '[ERROR] g1_core SIM no pudo iniciar.'
                 echo '----- /tmp/g1_core.log -----'
+
                 cat /tmp/g1_core.log
+
                 exit 1
             fi
 
-            echo 'g1_core iniciado.'
+            echo 'g1_core SIM iniciado.'
+
+
+            # =================================================
+            # HIGH LEVEL ONLY: G1 CTRL
+            # =================================================
+
+            if [ \"\$G1_RUN_MODE\" = 'high' ]; then
+
+                echo
+                echo 'Iniciando g1_ctrl SIM...'
+
+                setsid env \
+                    LD_LIBRARY_PATH=/opt/unitree_robotics/lib:\$LD_LIBRARY_PATH \
+                    stdbuf -oL -eL \
+                    /workspace/controller/unitree_rl_lab_23/deploy/robots/g1_23dof/build/g1_ctrl \
+                    </dev/null >/tmp/g1_ctrl.log 2>&1 &
+
+                ctrl_pid=\$!
+
+                sleep 1
+
+
+                if ! kill -0 \$ctrl_pid >/dev/null 2>&1; then
+
+                    echo '[ERROR] g1_ctrl no pudo iniciar.'
+                    echo '----- /tmp/g1_ctrl.log -----'
+
+                    cat /tmp/g1_ctrl.log
+
+                    exit 1
+                fi
+
+
+                echo 'g1_ctrl SIM iniciado.'
+
+            else
+
+                echo
+                echo 'LOW LEVEL SIM: g1_ctrl NO se inicia.'
+
+            fi
+
 
             echo
-            echo 'Iniciando g1_ctrl SIM...'
-
-            setsid env \
-                LD_LIBRARY_PATH=/opt/unitree_robotics/lib:\$LD_LIBRARY_PATH \
-                stdbuf -oL -eL \
-                /workspace/controller/unitree_rl_lab_23/deploy/robots/g1_23dof/build/g1_ctrl \
-                </dev/null >/tmp/g1_ctrl.log 2>&1 &
-
-            sleep 1
-
-            if ! pgrep -f '/g1_23dof/build/g1_ctrl' >/dev/null; then
-                echo '[ERROR] g1_ctrl no pudo iniciar.'
-                echo '----- /tmp/g1_ctrl.log -----'
-                cat /tmp/g1_ctrl.log
-                exit 1
-            fi
-
-            echo 'g1_ctrl SIM iniciado.'
-
             echo 'Terminal lista.'
+
             exec bash --norc -i
         "
 }
 
-command_shell()
-{
-    if ! /usr/bin/docker ps \
-        --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"
+
+# ============================================================
+# SHELL
+# ============================================================
+
+command_shell() {
+
+    if ! docker ps \
+        --format '{{.Names}}' |
+        grep -qx "$CONTAINER_NAME"
     then
+
         echo "No hay un entorno G1 ejecutandose."
+
         echo "Primero usa:"
         echo "  ./g1 sim"
         echo "o:"
-        echo "  ./g1 real"
+        echo "  ./g1 real --mode high"
+        echo "o:"
+        echo "  ./g1 real --mode low"
+
         exit 1
     fi
 
-    /usr/bin/docker exec -it \
+
+    docker exec -it \
         --user "$HOST_UID:$HOST_GID" \
         -e HOME="$CONTAINER_HOME" \
         "$CONTAINER_NAME" \
         bash --norc -c '
+
             source /opt/ros/humble/setup.bash
-            source /opt/unitree_ros2/cyclonedds_ws/install/setup.bash
-            source /workspace/install/setup.bash
+
+
+            if [ "$G1_MODE" = "sim" ] ||
+               {
+                   [ "$G1_MODE" = "real" ] &&
+                   [ "${G1_REAL_MODE:-}" = "low" ]
+               }
+            then
+
+                source /opt/unitree_ros2/cyclonedds_ws/install/setup.bash
+            fi
+
+
+            if [ -f /workspace/install_docker/setup.bash ]; then
+
+                source /workspace/install_docker/setup.bash
+            fi
+
+
+            if [ "$G1_MODE" = "real" ] &&
+               [ "${G1_REAL_MODE:-}" = "high" ] &&
+               [ -f /opt/g1-unitree-venv/bin/activate ]
+            then
+
+                source /opt/g1-unitree-venv/bin/activate
+            fi
+
 
             export ROS_DOMAIN_ID=0
+
             export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
 
             if [ "$G1_MODE" = "real" ]; then
 
@@ -379,12 +891,13 @@ command_shell()
                 export G1_INTERFACE=lo
 
                 export CYCLONEDDS_URI="<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"lo\" priority=\"default\" multicast=\"default\" /></Interfaces></General></Domain></CycloneDDS>"
-
             fi
+
 
             echo
             echo "==== G1 SHELL ===="
             echo "Mode      : $G1_MODE"
+            echo "Real mode : ${G1_REAL_MODE:--}"
             echo "Interface : $G1_INTERFACE"
             echo "=================="
             echo
@@ -393,30 +906,55 @@ command_shell()
         '
 }
 
+
+# ============================================================
+# MAIN
+# ============================================================
+
 case "${1:-}" in
+
     check)
+
         command_check
         ;;
 
     real)
-        command_real
+
+        shift
+
+        command_real "$@"
         ;;
 
     sim)
-        command_sim
+
+        shift
+
+        command_sim "$@"
+        ;;
+
+    build)
+
+	command_build
+	;;
+
+    shell)
+
+        command_shell
         ;;
 
     -h|--help|help|"")
+
         usage
         ;;
-    shell)
-	command_shell
-	;;
 
     *)
+
         echo "Comando desconocido: $1"
+
         echo
+
         usage
+
         exit 1
         ;;
 esac

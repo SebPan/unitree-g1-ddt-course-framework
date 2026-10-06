@@ -1,8 +1,8 @@
 import time
 import rclpy
 
-from g1_interface.g1_sensors import G1Sensors
 from g1_interface.g1_low_level import G1LowLevel
+from g1_interface.g1_sensors import G1Sensors
 
 
 JOINT = "right_elbow"
@@ -10,67 +10,93 @@ DELTA = 0.15
 
 
 def main():
+
     rclpy.init()
 
-    sensors = G1Sensors()
     robot = G1LowLevel()
+    sensors = G1Sensors()
 
     print("Esperando g1_core...")
 
-    if not robot.wait_for_core(timeout=5.0):
-        print("ERROR: g1_core no encontrado")
+    if not robot.wait_for_core():
+        print("ERROR: g1_core no disponible")
         return
 
     print("Core conectado.")
 
-    # Esperar hasta recibir realmente LowState
     print("Esperando sensores...")
 
-    position = None
+    q0 = None
 
-    while rclpy.ok() and position is None:
-        rclpy.spin_once(sensors, timeout_sec=0.1)
-        position = sensors.get_joint_position(JOINT)
+    for _ in range(50):
 
-    print(f"Posicion inicial: {position:.4f} rad")
+        q0 = sensors.get_joint_position(JOINT)
 
-    target = position + DELTA
+        if q0 is not None:
+            break
+
+        time.sleep(0.1)
+
+    if q0 is None:
+        print("ERROR: no llegan sensores")
+        return
+
+    target = q0 + DELTA
+
+    print(f"Posicion inicial: {q0:.4f} rad")
     print(f"Objetivo:         {target:.4f} rad")
 
+    # ========================================================
+    # MOVER
+    # ========================================================
+
     print("\nMoviendo...")
-    robot.set_joint(JOINT, target)
 
-    start_time = time.time()
+    ok = robot.move_joint(
+        JOINT,
+        target,
+        duration=2.0
+    )
 
-    while time.time() - start_time < 3.0:
-        rclpy.spin_once(sensors, timeout_sec=0.05)
+    print("move_joint =", ok)
 
-        q = sensors.get_joint_position(JOINT)
+    time.sleep(0.5)
 
-        if q is not None:
-            print(f"{time.time() - start_time:.2f} s -> {q:.4f} rad")
+    q1 = sensors.get_joint_position(JOINT)
 
-        time.sleep(0.15)
+    print(
+        f"Posicion alcanzada: "
+        f"{q1:.4f} rad"
+    )
+
+    # ========================================================
+    # REGRESAR
+    # ========================================================
 
     print("\nRegresando...")
-    robot.set_joint(JOINT, position)
 
-    start_time = time.time()
+    ok = robot.move_joint(
+        JOINT,
+        q0,
+        duration=2.0
+    )
 
-    while time.time() - start_time < 3.0:
-        rclpy.spin_once(sensors, timeout_sec=0.05)
+    print("move_joint =", ok)
 
-        q = sensors.get_joint_position(JOINT)
+    time.sleep(0.5)
 
-        if q is not None:
-            print(f"{time.time() - start_time:.2f} s -> {q:.4f} rad")
+    q2 = sensors.get_joint_position(JOINT)
 
-        time.sleep(0.15)
+    print(
+        f"Posicion final: "
+        f"{q2:.4f} rad"
+    )
+
+    # Mantener posicion final
+    robot.hold()
 
     print("\nPrueba terminada.")
 
-    sensors.destroy_node()
-    robot.destroy_node()
     rclpy.shutdown()
 
 

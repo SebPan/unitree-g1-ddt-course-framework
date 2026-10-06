@@ -25,6 +25,7 @@ RUN apt-get update && apt-get install -y \
     g++ \
     pkg-config \
     python3-pip \
+    python3-venv  \
     python3-colcon-common-extensions \
     python3-rosdep \
     libyaml-cpp-dev \
@@ -207,6 +208,56 @@ RUN source /opt/ros/humble/setup.bash \
         unitree_go \
         unitree_hg \
         unitree_api
+
+# ============================================================
+# Unitree SDK2 Python - HighLevel REAL
+#
+# Entorno Python aislado incluido en la imagen.
+# El alumno NO instala nada manualmente.
+# ============================================================
+
+RUN git clone \
+    https://github.com/unitreerobotics/unitree_sdk2_python.git \
+    /opt/unitree_sdk2_python \
+    && python3 -m venv \
+        --system-site-packages \
+        /opt/g1-unitree-venv \
+    && source /opt/g1-unitree-venv/bin/activate \
+    && python -m pip install --upgrade \
+        pip \
+        setuptools \
+        wheel \
+    && python -m pip install \
+        pyyaml \
+    && export CYCLONEDDS_HOME=/opt/unitree_ros2/cyclonedds_ws/install/cyclonedds \
+    && python -m pip install \
+        /opt/unitree_sdk2_python \
+    && SDK2_PKG_DIR="$(python -c 'import os, unitree_sdk2py; print(os.path.dirname(unitree_sdk2py.__file__))')" \
+    && mkdir -p "$SDK2_PKG_DIR/utils/lib" \
+    && cp \
+        /opt/unitree_sdk2_python/unitree_sdk2py/utils/lib/crc_amd64.so \
+        "$SDK2_PKG_DIR/utils/lib/crc_amd64.so" \
+    && python -c "\
+import unitree_sdk2py; \
+from unitree_sdk2py.core.channel import ChannelFactoryInitialize; \
+from unitree_sdk2py.g1.loco.g1_loco_client import LocoClient; \
+from unitree_sdk2py.utils.crc import CRC; \
+CRC(); \
+print('Unitree SDK2 Python + CRC OK')"
+
+
+
+# ============================================================
+# Fix SDK2 Python CRC native library
+# ============================================================
+
+RUN source /opt/g1-unitree-venv/bin/activate \
+    && SDK2_PKG_DIR="$(python -c 'import os, unitree_sdk2py; print(os.path.dirname(unitree_sdk2py.__file__))')" \
+    && mkdir -p "$SDK2_PKG_DIR/utils/lib" \
+    && cp \
+        /opt/unitree_sdk2_python/unitree_sdk2py/utils/lib/crc_amd64.so \
+        "$SDK2_PKG_DIR/utils/lib/crc_amd64.so" \
+    && python -c "from unitree_sdk2py.utils.crc import CRC; CRC(); print('Unitree SDK2 Python + CRC OK')"
 
 
 # ============================================================

@@ -81,6 +81,13 @@ JOINTS = {
 
 ARM_WEIGHT_ID = 29
 
+# WaistYaw del G1 23DOF
+WAIST_YAW_ID = 12
+
+# Ganancias para mantener fija la cintura
+WAIST_KP = 60.0
+WAIST_KD = 1.5
+
 
 # ============================================================
 # LOCOMOTION
@@ -411,6 +418,10 @@ class G1Arms:
 
         self.weight = 0.0
 
+        # Posicion de WaistYaw que se mantendra fija
+        # mientras arm_sdk tenga autoridad.
+        self.waist_target = None
+
         self.started = False
         self.thread = None
 
@@ -561,11 +572,31 @@ class G1Arms:
             targets = dict(
                 self.targets
             )
+            waist_target = self.waist_target
 
         # Unitree arm_sdk weight
         self.low_cmd.motor_cmd[
             ARM_WEIGHT_ID
         ].q = float(weight)
+
+        # ----------------------------------------------------
+        # WAIST YAW LOCK
+        # ----------------------------------------------------
+
+        if (
+            waist_target is not None
+            and weight > 1e-6
+        ):
+
+            waist_cmd = self.low_cmd.motor_cmd[
+                WAIST_YAW_ID
+            ]
+
+            waist_cmd.tau = 0.0
+            waist_cmd.q = float(waist_target)
+            waist_cmd.dq = 0.0
+            waist_cmd.kp = WAIST_KP
+            waist_cmd.kd = WAIST_KD
 
         for name, idx in JOINTS.items():
 
@@ -623,8 +654,19 @@ class G1Arms:
                     .q
                 )
 
+            # Capturar WaistYaw actual.
+            # No la llevamos a cero: la mantenemos
+            # exactamente donde estaba al habilitar brazos.
+            self.waist_target = float(
+                self.low_state
+                .motor_state[WAIST_YAW_ID]
+                .q
+            )
+
         print(
-            "[ARMS] ENABLE"
+            f"[ARMS] ENABLE | "
+            f"WaistYaw locked at "
+            f"{self.waist_target:.3f} rad"
         )
 
         steps = max(
@@ -702,10 +744,16 @@ class G1Arms:
             )
 
         with self.lock:
+
             self.weight = 0.0
 
+            # La cintura vuelve a quedar bajo
+            # control normal del robot.
+            self.waist_target = None
+
         print(
-            "[ARMS] weight = 0.0"
+            "[ARMS] weight = 0.0 | "
+            "WaistYaw released"
         )
 
         return True
@@ -863,6 +911,14 @@ class G1HighCore(Node):
             G1Arms()
         )
 
+        # Estado de actividad.
+        # Regla:
+        #   caminando -> NO mover brazos
+        #   brazos moviendose -> NO iniciar marcha
+        self.activity_lock = threading.RLock()
+        self.walking = False
+        self.arm_busy = False
+
         # ====================================================
         # ROS INPUT
         # ====================================================
@@ -1001,6 +1057,12 @@ class G1HighCore(Node):
                 self.locomotion.damp()
             )
 
+        elif command == "prepare":
+
+            ok = (
+                self.locomotion.prepare_walk()
+            )
+
         elif command == "stop":
 
             ok = (
@@ -1023,6 +1085,19 @@ class G1HighCore(Node):
 
             return
 
+        if (
+            ok
+            and command in (
+                "stand",
+                "damp",
+                "stop",
+                "zero_torque",
+            )
+        ):
+
+            with self.activity_lock:
+                self.walking = False
+
         self.publish_result(
             f"{command}: "
             f"{'OK' if ok else 'ERROR'}"
@@ -1037,38 +1112,104 @@ class G1HighCore(Node):
         msg
     ):
 
-        vx = float(
-            msg.linear.x
-        )
+        vx = float(msg.linear.x)
+        vy = float(msg.linear.y)
+        wz = float(msg.angular.z)
 
-        vy = float(
-            msg.linear.y
-        )
-
-        wz = float(
-            msg.angular.z
-        )
-
-        # Twist cero = STOP
-        if (
+        moving_command = not (
             abs(vx) < 1e-6
             and abs(vy) < 1e-6
             and abs(wz) < 1e-6
-        ):
+        )
 
-            ok = (
-                self.locomotion.stop()
+        # ----------------------------------------------------
+        # INICIAR MARCHA
+        # ----------------------------------------------------
+
+        if moving_command:
+
+            # ------------------------------------------------
+            # BRAZOS -> LOCOMOCION
+            #
+            # Antes de caminar:
+            #   1. comprobar que no haya trayectoria activa
+            #   2. liberar arm_sdk
+            #   3. liberar WaistYaw
+            #   4. reservar locomocion
+            # ------------------------------------------------
+
+            with self.activity_lock:
+
+                if self.arm_busy:
+
+                    self.get_logger().warning(
+                        "Movimiento bloqueado: "
+                        "los brazos estan en movimiento"
+                    )
+
+                    self.publish_result(
+                        "velocity: BLOCKED_ARMS"
+                    )
+
+                    return
+
+                self.arm_busy = True
+
+                try:
+
+                    with self.arms.lock:
+                        arm_weight = self.arms.weight
+
+                    if arm_weight > 1e-6:
+
+                        self.get_logger().info(
+                            "Liberando arm_sdk antes "
+                            "de iniciar locomocion..."
+                        )
+
+                        if not self.arms.release():
+
+                            self.get_logger().error(
+                                "No se pudo liberar arm_sdk"
+                            )
+
+                            self.publish_result(
+                                "velocity: ARM_RELEASE_ERROR"
+                            )
+
+                            return
+
+                    # A partir de aqui los brazos y
+                    # WaistYaw ya estan liberados.
+                    self.walking = True
+
+                finally:
+
+                    self.arm_busy = False
+
+            ok = self.locomotion.velocity(
+                vx,
+                vy,
+                wz
             )
+
+            if not ok:
+
+                with self.activity_lock:
+                    self.walking = False
+
+        # ----------------------------------------------------
+        # STOP
+        # ----------------------------------------------------
 
         else:
 
-            ok = (
-                self.locomotion.velocity(
-                    vx,
-                    vy,
-                    wz
-                )
-            )
+            ok = self.locomotion.stop()
+
+            if ok:
+
+                with self.activity_lock:
+                    self.walking = False
 
         self.publish_result(
             "velocity: "
@@ -1100,10 +1241,34 @@ class G1HighCore(Node):
 
         if command == "enable":
 
-            ok = self.arms.enable()
+            with self.activity_lock:
+
+                if self.walking:
+
+                    self.get_logger().warning(
+                        "ARM ENABLE bloqueado: "
+                        "robot caminando"
+                    )
+
+                    self.publish_result(
+                        "arm_enable: BLOCKED_WALKING"
+                    )
+
+                    return
+
+                self.arm_busy = True
+
+            try:
+                ok = self.arms.enable()
+
+            finally:
+
+                with self.activity_lock:
+                    self.arm_busy = False
 
         elif command == "release":
 
+            # RELEASE siempre se permite.
             ok = self.arms.release()
 
         else:
@@ -1170,6 +1335,29 @@ class G1HighCore(Node):
         if duration <= 0.0:
             duration = 1.0
 
+        # ----------------------------------------------------
+        # SEGURIDAD: brazos solo con locomocion detenida
+        # ----------------------------------------------------
+
+        with self.activity_lock:
+
+            if self.walking:
+
+                self.get_logger().warning(
+                    "Movimiento de brazos bloqueado: "
+                    "robot caminando"
+                )
+
+                self.publish_result(
+                    "arm_trajectory: BLOCKED_WALKING"
+                )
+
+                return
+
+            # Reservamos los brazos antes de iniciar
+            # para impedir que comience locomocion.
+            self.arm_busy = True
+
         try:
 
             ok = self.arms.move_joints(
@@ -1184,6 +1372,11 @@ class G1HighCore(Node):
             )
 
             ok = False
+
+        finally:
+
+            with self.activity_lock:
+                self.arm_busy = False
 
         self.publish_result(
             "arm_trajectory: "
