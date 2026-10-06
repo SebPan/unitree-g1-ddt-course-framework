@@ -27,6 +27,82 @@ echo "=== Construyendo imagen Docker ==="
 docker build -t g1-course-sim:dev docker_image
 
 echo
+echo "=== Preparando ONNX Runtime 1.22.0 ==="
+
+docker run --rm \
+    --user "$(id -u):$(id -g)" \
+    -e HOME=/tmp/g1-home \
+    -v "$(pwd):/workspace" \
+    --workdir /workspace \
+    g1-course-sim:dev \
+    bash -lc '
+        set -e
+
+        ORT_BASE="/workspace/controller/unitree_rl_lab_23/deploy/thirdparty"
+        ORT_DIR="$ORT_BASE/onnxruntime-linux-x64-1.22.0"
+        ORT_ARCHIVE="/tmp/onnxruntime-linux-x64-1.22.0.tgz"
+        ORT_URL="https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-linux-x64-1.22.0.tgz"
+
+        if [ ! -f "$ORT_DIR/include/onnxruntime_cxx_api.h" ] || \
+           [ ! -f "$ORT_DIR/lib/libonnxruntime.so.1.22.0" ]; then
+
+            echo "Descargando ONNX Runtime 1.22.0..."
+
+            mkdir -p "$ORT_BASE"
+            rm -rf "$ORT_DIR"
+
+            python3 -c "import urllib.request; urllib.request.urlretrieve(\"$ORT_URL\", \"$ORT_ARCHIVE\")"
+
+            tar -xzf "$ORT_ARCHIVE" -C "$ORT_BASE"
+
+            rm -f "$ORT_ARCHIVE"
+        fi
+
+        test -f "$ORT_DIR/include/onnxruntime_cxx_api.h"
+        test -f "$ORT_DIR/lib/libonnxruntime.so.1.22.0"
+
+        echo "[OK] ONNX Runtime 1.22.0"
+    '
+
+echo
+echo "=== Preparando ONNX Runtime 1.22.0 ==="
+
+docker run --rm \
+    --user "$(id -u):$(id -g)" \
+    -e HOME=/tmp/g1-home \
+    -v "$(pwd):/workspace" \
+    --workdir /workspace \
+    g1-course-sim:dev \
+    bash -lc '
+        set -e
+
+        ORT_BASE="/workspace/controller/unitree_rl_lab_23/deploy/thirdparty"
+        ORT_DIR="$ORT_BASE/onnxruntime-linux-x64-1.22.0"
+        ORT_ARCHIVE="/tmp/onnxruntime-linux-x64-1.22.0.tgz"
+        ORT_URL="https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-linux-x64-1.22.0.tgz"
+
+        if [ ! -f "$ORT_DIR/include/onnxruntime_cxx_api.h" ] || \
+           [ ! -f "$ORT_DIR/lib/libonnxruntime.so.1.22.0" ]; then
+
+            echo "Descargando ONNX Runtime 1.22.0..."
+
+            mkdir -p "$ORT_BASE"
+            rm -rf "$ORT_DIR"
+
+            python3 -c "import urllib.request; urllib.request.urlretrieve(\"$ORT_URL\", \"$ORT_ARCHIVE\")"
+
+            tar -xzf "$ORT_ARCHIVE" -C "$ORT_BASE"
+
+            rm -f "$ORT_ARCHIVE"
+        fi
+
+        test -f "$ORT_DIR/include/onnxruntime_cxx_api.h"
+        test -f "$ORT_DIR/lib/libonnxruntime.so.1.22.0"
+
+        echo "[OK] ONNX Runtime 1.22.0"
+    '
+
+echo
 echo "=== Compilando controlador HighLevel SIM ==="
 
 docker run --rm     --user "$(id -u):$(id -g)"     -e HOME=/tmp/g1-home     -v "$(pwd):/workspace"     --workdir /workspace     g1-course-sim:dev     bash -lc '
