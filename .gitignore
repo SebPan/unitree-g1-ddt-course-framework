@@ -53,3 +53,9 @@ controller/unitree_rl_lab_23/assets/*.mp4
 
 # Download archive; extracted ONNX Runtime is kept
 controller/unitree_rl_lab_23/deploy/thirdparty/*.tgz
+
+# Local development environments
+.vs/
+**/.vs/
+.venv/
+**/.venv/
